@@ -78,6 +78,11 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("server_error: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
 	var result SetResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return 0, err
