@@ -199,3 +199,78 @@ func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 
 	return events, resp.Body, nil
 }
+
+func (s *Silo) Register(segment string, fields []string) (map[string]string, error) {
+	payload := map[string]interface{}{
+		"segment": segment,
+		"fields":  fields,
+	}
+	reqBody, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", s.BaseURL+"/register", bytes.NewBuffer(reqBody))
+	req.Header.Set("Authorization", "Bearer "+s.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Status     string            `json:"status"`
+		Normalized map[string]string `json:"normalized"`
+		Error      string            `json:"error,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	if result.Error != "" {
+		return nil, MapErrorCode(result.Error)
+	}
+
+	return result.Normalized, nil
+}
+
+type SignInResult struct {
+	APIKey      string `json:"api_key"`
+	RecoveryKey string `json:"recovery_key"`
+}
+
+func SignIn(baseURL, name, password string) (*SignInResult, error) {
+	payload := map[string]string{"name": name, "password": password}
+	reqBody, _ := json.Marshal(payload)
+	resp, err := http.Post(baseURL+"/signin", "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result SignInResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+type CreateWorkspaceResult struct {
+	WorkspaceID      string `json:"workspace_id"`
+	WorkspaceKey     string `json:"workspace_key"`
+	ConnectionString string `json:"connection_string"`
+}
+
+func CreateWorkspace(baseURL, appName string) (*CreateWorkspaceResult, error) {
+	payload := map[string]string{"app_name": appName}
+	reqBody, _ := json.Marshal(payload)
+	resp, err := http.Post(baseURL+"/workspace/create", "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result CreateWorkspaceResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
