@@ -31,8 +31,14 @@ func Connect(connectionURI string) (*Silo, error) {
 	token, _ := parsed.User.Password()
 	host := parsed.Host
 
+	// Default to https unless it's localhost
+	scheme := "https"
+	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
+		scheme = "http"
+	}
+
 	return &Silo{
-		BaseURL: fmt.Sprintf("http://%s", host),
+		BaseURL: fmt.Sprintf("%s://%s", scheme, host),
 		Token:   token,
 		client:  &http.Client{},
 	}, nil
