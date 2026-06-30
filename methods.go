@@ -1,4 +1,4 @@
-package sdk
+package silo
 
 import (
 	"bufio"
@@ -163,7 +163,6 @@ func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
 	req.Header.Set("Authorization", "Bearer "+s.Token)
-	// Content-Type not strictly needed for GET with no body
 
 	resp, err := s.client.Do(req)
 	if err != nil {
