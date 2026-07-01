@@ -32,19 +32,15 @@ func (st *LCTState) Evolve(block []byte) {
 	si := new(big.Int).SetUint64(st.S)
 	p := new(big.Int).SetUint64(st.P)
 
-	// Si^3
 	term1 := new(big.Int).Exp(si, big.NewInt(3), p)
 
-	// 13Si
 	term2 := new(big.Int).Mul(big.NewInt(13), si)
 	term2.Mod(term2, p)
 
-	// 7i^2
 	idx := big.NewInt(int64(st.index))
 	term3 := new(big.Int).Mul(big.NewInt(7), new(big.Int).Mul(idx, idx))
 	term3.Mod(term3, p)
 
-	// Sum(k+1)bk
 	sum := big.NewInt(0)
 	for k, b := range block {
 		bk := big.NewInt(int64(b))
@@ -53,7 +49,6 @@ func (st *LCTState) Evolve(block []byte) {
 	}
 	sum.Mod(sum, p)
 
-	// Final evolution
 	res := new(big.Int).Add(term1, term2)
 	res.Add(res, term3)
 	res.Add(res, sum)
@@ -71,7 +66,7 @@ func (st *LCTState) Project(b []byte) (x, y, z uint64) {
 	if len(b) > 2 { b2 = uint64(b[2]) }
 
 	x = (b0 + st.S) % st.P
-	y = (b1*b1 + 5*st.S) % st.P // Fixed to use block data
+	y = (b1*b1 + 5*st.S) % st.P
 	z = (3*b2 + 7*y + st.S) % st.P
 	return
 }
