@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,6 +26,9 @@ type Silo struct {
 	epochDelta int64
 	lastSync   time.Time
 	signatures map[string]string
+
+	// Scale Hardening: Atomic counter to prevent Sequence collisions in shared clients.
+	reqCounter uint64
 }
 
 func Connect(connectionURI string) (*Silo, error) {
@@ -62,6 +66,7 @@ func (s *Silo) Handshake() error {
 	resp, err := s.client.Do(req)
 	if err != nil { return err }
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK { return fmt.Errorf("handshake_failed") }
 	var res handshakeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil { return err }
 	s.mu.Lock()
@@ -77,9 +82,11 @@ func (s *Silo) CurrentEpoch() int64 {
 	return s.epoch + (elapsed / s.epochDelta)
 }
 
-// NextSequence generates a microsecond-precision temporal sequence ID.
+// NextSequence now uses Time + Atomic Counter to guarantee uniqueness under scale.
 func (s *Silo) NextSequence() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano() / 1000)
+	ts := time.Now().UnixNano() / 1000
+	count := atomic.AddUint64(&s.reqCounter, 1)
+	return fmt.Sprintf("%d%d", ts, count%1000)
 }
 
 func (s *Silo) RawGet(path string) []byte {
