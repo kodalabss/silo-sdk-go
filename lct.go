@@ -51,7 +51,6 @@ func (st *LCTState) Mix(b byte) (v1, v2, v3 uint64) {
 	p := st.P
 	s := st.S
 
-	// Project x, y, z
 	x := new(big.Int).Add(new(big.Int).SetUint64(uint64(b)), s)
 	x.Mod(x, p)
 
@@ -62,23 +61,17 @@ func (st *LCTState) Mix(b byte) (v1, v2, v3 uint64) {
 	z.Add(z, new(big.Int).Mul(big.NewInt(7), y)).Add(z, s).Mod(z, p)
 
 	a := new(big.Int).Add(big.NewInt(2), s)
-	bVal := big.NewInt(5)
-	c := big.NewInt(7)
-	d := big.NewInt(11)
-	e := new(big.Int).Add(big.NewInt(3), s)
-	f := big.NewInt(13)
-	g := big.NewInt(17)
-	h := big.NewInt(19)
-	i := new(big.Int).Add(big.NewInt(23), s)
+	eCoeff := new(big.Int).Add(big.NewInt(3), s)
+	iCoeff := new(big.Int).Add(big.NewInt(23), s)
 
 	vv1 := new(big.Int).Mul(a, x)
-	vv1.Add(vv1, new(big.Int).Mul(bVal, y)).Add(vv1, new(big.Int).Mul(c, z)).Mod(vv1, p)
+	vv1.Add(vv1, new(big.Int).Mul(big.NewInt(5), y)).Add(vv1, new(big.Int).Mul(big.NewInt(7), z)).Mod(vv1, p)
 
-	vv2 := new(big.Int).Mul(d, x)
-	vv2.Add(vv2, new(big.Int).Mul(e, y)).Add(vv2, new(big.Int).Mul(f, z)).Mod(vv2, p)
+	vv2 := new(big.Int).Mul(big.NewInt(11), x)
+	vv2.Add(vv2, new(big.Int).Mul(eCoeff, y)).Add(vv2, new(big.Int).Mul(big.NewInt(13), z)).Mod(vv2, p)
 
-	vv3 := new(big.Int).Mul(g, x)
-	vv3.Add(vv3, new(big.Int).Mul(h, y)).Add(vv3, new(big.Int).Mul(i, z)).Mod(vv3, p)
+	vv3 := new(big.Int).Mul(big.NewInt(17), x)
+	vv3.Add(vv3, new(big.Int).Mul(big.NewInt(19), y)).Add(vv3, new(big.Int).Mul(iCoeff, z)).Mod(vv3, p)
 
 	return vv1.Uint64(), vv2.Uint64(), vv3.Uint64()
 }
@@ -87,39 +80,34 @@ func (st *LCTState) Unmix(v1, v2, v3 uint64) (byte, error) {
 	p := st.P
 	s := st.S
 	a := new(big.Int).Add(big.NewInt(2), s)
-	bVal := big.NewInt(5)
-	c := big.NewInt(7)
-	d := big.NewInt(11)
-	e := new(big.Int).Add(big.NewInt(3), s)
-	f := big.NewInt(13)
-	g := big.NewInt(17)
-	h := big.NewInt(19)
-	i := new(big.Int).Add(big.NewInt(23), s)
+	bConst := big.NewInt(5)
+	cConst := big.NewInt(7)
+	dConst := big.NewInt(11)
+	eCoeff := new(big.Int).Add(big.NewInt(3), s)
+	fConst := big.NewInt(13)
+	gConst := big.NewInt(17)
+	hConst := big.NewInt(19)
+	iCoeff := new(big.Int).Add(big.NewInt(23), s)
 
-	// det = a(ei - fh) - b(di - fg) + c(dh - eg)
-	C11 := new(big.Int).Sub(new(big.Int).Mul(e, i), new(big.Int).Mul(f, h))
-	C12 := new(big.Int).Sub(new(big.Int).Mul(d, i), new(big.Int).Mul(f, g)); C12.Neg(C12)
-	C13 := new(big.Int).Sub(new(big.Int).Mul(d, h), new(big.Int).Mul(e, g))
+	C11 := new(big.Int).Sub(new(big.Int).Mul(eCoeff, iCoeff), new(big.Int).Mul(fConst, hConst))
+	C12 := new(big.Int).Sub(new(big.Int).Mul(dConst, iCoeff), new(big.Int).Mul(fConst, gConst)); C12.Neg(C12)
+	C13 := new(big.Int).Sub(new(big.Int).Mul(dConst, hConst), new(big.Int).Mul(eCoeff, gConst))
 
 	det := new(big.Int).Mul(a, C11)
-	det.Add(det, new(big.Int).Mul(bVal, C12)).Add(det, new(big.Int).Mul(c, C13)).Mod(det, p)
+	det.Add(det, new(big.Int).Mul(bConst, C12)).Add(det, new(big.Int).Mul(cConst, C13)).Mod(det, p)
 	detInv := new(big.Int).ModInverse(det, p)
 
-	// Adjugate for x, y, z
-	// Row 1 (for x): C11, - (bi - ch), (bf - ce)
 	adj11 := C11
-	adj12 := new(big.Int).Sub(new(big.Int).Mul(bVal, i), new(big.Int).Mul(c, h)); adj12.Neg(adj12)
-	adj13 := new(big.Int).Sub(new(big.Int).Mul(bVal, f), new(big.Int).Mul(c, e))
+	adj12 := new(big.Int).Sub(new(big.Int).Mul(bConst, iCoeff), new(big.Int).Mul(cConst, hConst)); adj12.Neg(adj12)
+	adj13 := new(big.Int).Sub(new(big.Int).Mul(bConst, fConst), new(big.Int).Mul(cConst, eCoeff))
 
-	// Row 2 (for y): - (di - fg), (ai - cg), - (af - cd)
 	adj21 := C12
-	adj22 := new(big.Int).Sub(new(big.Int).Mul(a, i), new(big.Int).Mul(c, g))
-	adj23 := new(big.Int).Sub(new(big.Int).Mul(a, f), new(big.Int).Mul(c, d)); adj23.Neg(adj23)
+	adj22 := new(big.Int).Sub(new(big.Int).Mul(a, iCoeff), new(big.Int).Mul(cConst, gConst))
+	adj23 := new(big.Int).Sub(new(big.Int).Mul(a, fConst), new(big.Int).Mul(cConst, dConst)); adj23.Neg(adj23)
 
-	// Row 3 (for z): (dh - eg), - (ah - bg), (ae - bd)
 	adj31 := C13
-	adj32 := new(big.Int).Sub(new(big.Int).Mul(a, h), new(big.Int).Mul(bVal, g)); adj32.Neg(adj32)
-	adj33 := new(big.Int).Sub(new(big.Int).Mul(a, e), new(big.Int).Mul(bVal, d))
+	adj32 := new(big.Int).Sub(new(big.Int).Mul(a, hConst), new(big.Int).Mul(bConst, gConst)); adj32.Neg(adj32)
+	adj33 := new(big.Int).Sub(new(big.Int).Mul(a, eCoeff), new(big.Int).Mul(bConst, dConst))
 
 	vv1 := new(big.Int).SetUint64(v1)
 	vv2 := new(big.Int).SetUint64(v2)
@@ -129,12 +117,11 @@ func (st *LCTState) Unmix(v1, v2, v3 uint64) (byte, error) {
 	ry := new(big.Int).Mul(adj21, vv1); ry.Add(ry, new(big.Int).Mul(adj22, vv2)).Add(ry, new(big.Int).Mul(adj23, vv3)); ry.Mul(ry, detInv).Mod(ry, p)
 	rz := new(big.Int).Mul(adj31, vv1); rz.Add(rz, new(big.Int).Mul(adj32, vv2)).Add(rz, new(big.Int).Mul(adj33, vv3)); rz.Mul(rz, detInv).Mod(rz, p)
 
-	// --- REALITY PARITY CHECK ---
-	// 1. Recover b from x
-	bVal := new(big.Int).Sub(rx, s); bVal.Add(bVal, p).Mod(bVal, p)
-	b := byte(bVal.Uint64() & 0xFF)
+	// Recover b from x
+	recoveredBVal := new(big.Int).Sub(rx, s); recoveredBVal.Add(recoveredBVal, p).Mod(recoveredBVal, p)
+	b := byte(recoveredBVal.Uint64() & 0xFF)
 
-	// 2. Re-project y and z from rx
+	// Re-project y and z from rx to verify reality
 	expectedY := new(big.Int).Mul(rx, rx)
 	expectedY.Add(expectedY, new(big.Int).Mul(big.NewInt(5), s)).Mod(expectedY, p)
 
