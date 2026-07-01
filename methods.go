@@ -84,16 +84,19 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		return nil, 0, MapErrorCode(result.Error)
 	}
 
+	// Substance Layer: LCT Inversion
 	s.mu.RLock()
 	snHex := s.sn
 	s.mu.RUnlock()
 
 	if snHex != "" {
 		sn, _ := hex.DecodeString(snHex)
-		var vectors []uint64
-		if err := json.Unmarshal(result.Value, &vectors); err == nil && len(vectors)%3 == 0 && len(vectors) > 0 {
-			decoded := LCTDecode(vectors, sn)
-			return decoded, result.T, nil
+		var hexSubstance string
+		if err := json.Unmarshal(result.Value, &hexSubstance); err == nil {
+			decoded := LCTUnpack(hexSubstance, sn)
+			if decoded != nil {
+				return decoded, result.T, nil
+			}
 		}
 	}
 
@@ -113,7 +116,7 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 	var finalValue interface{}
 	if snHex != "" {
 		sn, _ := hex.DecodeString(snHex)
-		finalValue = LCTEncode(valBytes, sn)
+		finalValue = LCTPack(valBytes, sn)
 	} else {
 		finalValue = value
 	}
