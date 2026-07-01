@@ -19,9 +19,13 @@ type GetResponse struct {
 }
 
 func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
+	epoch := s.CurrentEpoch()
+	proof := s.GenerateProof(path, epoch)
+
 	reqBody, _ := json.Marshal(map[string]string{"path": path})
 	req, _ := http.NewRequest("GET", s.BaseURL+"/get", bytes.NewBuffer(reqBody))
 	req.Header.Set("Authorization", "Bearer "+s.Token)
+	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -54,6 +58,9 @@ type SetResponse struct {
 }
 
 func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, error) {
+	epoch := s.CurrentEpoch()
+	proof := s.GenerateProof(path, epoch)
+
 	payload := map[string]interface{}{
 		"path":  path,
 		"value": value,
@@ -71,6 +78,7 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 	reqBody, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("PUT", s.BaseURL+"/set", bytes.NewBuffer(reqBody))
 	req.Header.Set("Authorization", "Bearer "+s.Token)
+	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -97,9 +105,13 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 }
 
 func (s *Silo) Del(path string) error {
+	epoch := s.CurrentEpoch()
+	proof := s.GenerateProof(path, epoch)
+
 	reqBody, _ := json.Marshal(map[string]string{"path": path})
 	req, _ := http.NewRequest("DELETE", s.BaseURL+"/del", bytes.NewBuffer(reqBody))
 	req.Header.Set("Authorization", "Bearer "+s.Token)
+	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -125,6 +137,7 @@ type BatchWrite struct {
 	Path      string      `json:"path"`
 	Value     interface{} `json:"value"`
 	ExpectedT uint64      `json:"expected_T,omitempty"`
+	Proof     string      `json:"proof,omitempty"`
 }
 
 type BatchResult struct {
@@ -134,6 +147,11 @@ type BatchResult struct {
 }
 
 func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
+	epoch := s.CurrentEpoch()
+	for i := range writes {
+		writes[i].Proof = s.GenerateProof(writes[i].Path, epoch)
+	}
+
 	reqBody, _ := json.Marshal(map[string]interface{}{"writes": writes})
 	req, _ := http.NewRequest("PUT", s.BaseURL+"/batch", bytes.NewBuffer(reqBody))
 	req.Header.Set("Authorization", "Bearer "+s.Token)
@@ -162,6 +180,9 @@ type WatchEvent struct {
 }
 
 func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
+	epoch := s.CurrentEpoch()
+	proof := s.GenerateProof(path, epoch)
+
 	u, _ := url.Parse(s.BaseURL + "/watch")
 	q := u.Query()
 	q.Set("path", path)
@@ -169,6 +190,7 @@ func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
 	req.Header.Set("Authorization", "Bearer "+s.Token)
+	req.Header.Set("X-Silo-Proof", proof)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
