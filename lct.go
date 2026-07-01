@@ -1,6 +1,7 @@
 package silo
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"math/big"
 )
@@ -17,8 +18,8 @@ type LCTState struct {
 }
 
 func NewLCTState(seed []byte) *LCTState {
-	// Derive initial S from the seed
-	s := binary.BigEndian.Uint64(HashBody(seed)[:8])
+	h := sha256.Sum256(seed)
+	s := binary.BigEndian.Uint64(h[:8])
 	return &LCTState{
 		P:     LCT_P,
 		S:     s % LCT_P,
@@ -64,25 +65,20 @@ func (st *LCTState) Evolve(block []byte) {
 
 // Project transforms a block of 3 bytes into a vector (x, y, z)
 func (st *LCTState) Project(b []byte) (x, y, z uint64) {
-	// Pad block if needed
 	var b0, b1, b2 uint64
 	if len(b) > 0 { b0 = uint64(b[0]) }
 	if len(b) > 1 { b1 = uint64(b[1]) }
 	if len(b) > 2 { b2 = uint64(b[2]) }
 
 	x = (b0 + st.S) % st.P
-	y = (x*x + 5*st.S) % st.P
-	z = (3*x + 7*y + st.S) % st.P
+	y = (b1*b1 + 5*st.S) % st.P // Fixed to use block data
+	z = (3*b2 + 7*y + st.S) % st.P
 	return
 }
 
 // Mix applies the state-derived matrix M
 func (st *LCTState) Mix(x, y, z uint64) (v1, v2, v3 uint64) {
 	s := st.S
-	// M = [ 2+s, 5, 7 ]
-	//     [ 11, 3+s, 13 ]
-	//     [ 17, 19, 23+s ]
-
 	v1 = ((2+s)*x + 5*y + 7*z) % st.P
 	v2 = (11*x + (3+s)*y + 13*z) % st.P
 	v3 = (17*x + 19*y + (23+s)*z) % st.P
@@ -94,7 +90,6 @@ func LCTEncode(data []byte, seed []byte) []uint64 {
 	st := NewLCTState(seed)
 	var output []uint64
 
-	// Process in 3-byte blocks
 	for i := 0; i < len(data); i += 3 {
 		end := i + 3
 		if end > len(data) {
@@ -111,6 +106,3 @@ func LCTEncode(data []byte, seed []byte) []uint64 {
 
 	return output
 }
-
-// Note: LCTDecode would require matrix inversion mod P.
-// For the first phase, we'll focus on the forward "Ghosting" to verify noise.
