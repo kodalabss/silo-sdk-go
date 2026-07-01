@@ -116,3 +116,9 @@ func (s *Silo) CurrentEpoch() int64 {
 	elapsed := int64(time.Since(s.lastSync).Seconds())
 	return s.epoch + (elapsed / s.epochDelta)
 }
+
+func (s *Silo) GetInternalSn() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sn
+}
