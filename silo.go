@@ -13,7 +13,6 @@ import (
 	"time"
 )
 
-// Silo is the client for interacting with the Silo engine.
 type Silo struct {
 	BaseURL string
 	Token   string
@@ -27,19 +26,14 @@ type Silo struct {
 	lastSync   time.Time
 	signatures map[string]string
 
-	// Scale Hardening: Atomic counter to prevent Sequence collisions in shared clients.
 	reqCounter uint64
 }
 
 func Connect(connectionURI string) (*Silo, error) {
-	if !strings.HasPrefix(connectionURI, "silo://") {
-		return nil, fmt.Errorf("invalid connection URI")
-	}
+	if !strings.HasPrefix(connectionURI, "silo://") { return nil, fmt.Errorf("invalid connection URI") }
 	rawURI := strings.Replace(connectionURI, "silo://", "http://", 1)
 	parsed, err := url.Parse(rawURI)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse URI")
-	}
+	if err != nil { return nil, fmt.Errorf("failed to parse URI") }
 	token, _ := parsed.User.Password()
 	host := parsed.Host
 
@@ -82,11 +76,11 @@ func (s *Silo) CurrentEpoch() int64 {
 	return s.epoch + (elapsed / s.epochDelta)
 }
 
-// NextSequence now uses Time + Atomic Counter to guarantee uniqueness under scale.
+// NextSequence: Strict Timestamp (Micro) + 3-digit padded atomic counter.
 func (s *Silo) NextSequence() string {
 	ts := time.Now().UnixNano() / 1000
 	count := atomic.AddUint64(&s.reqCounter, 1)
-	return fmt.Sprintf("%d%d", ts, count%1000)
+	return fmt.Sprintf("%d%03d", ts, count%1000)
 }
 
 func (s *Silo) RawGet(path string) []byte {
