@@ -9,15 +9,13 @@ import (
 	"strings"
 )
 
-// H computes the xxHash64 of the input string.
-// This is public/standard math, safe to show.
+// H computes a hash of the input string.
 func H(input string) uint64 {
 	return xxhash.Sum64([]byte(input))
 }
 
-// Resolve maps a workspace and a path to a 64-bit coordinate.
-// This is public geometry logic, safe to show.
-func Resolve(workspaceID string, path string) uint64 {
+// Resolve maps a path to a numeric coordinate.
+func Resolve(workspaceID string, path string, signatures map[string]string) uint64 {
 	hFinal := H(fmt.Sprintf("%s:0", workspaceID))
 	if path == "" {
 		return hFinal
@@ -25,39 +23,39 @@ func Resolve(workspaceID string, path string) uint64 {
 	segments := strings.Split(path, "/")
 	for i, segment := range segments {
 		pos := i + 1
-		hFinal ^= H(fmt.Sprintf("%s:%d", segment, pos))
+		input := fmt.Sprintf("%s:%d", segment, pos)
+
+		if sig, ok := signatures[segment]; ok {
+			input = fmt.Sprintf("%s:%s:%d", segment, sig, pos)
+		}
+
+		hFinal ^= H(input)
 	}
 	return hFinal
 }
 
-// GenerateProof creates an ephemeral security proof for a coordinate.
-// This is a "Black Box" operation using the Sn provided by the server.
-// The SDK does NOT know how Sn is derived.
+// GenerateProof creates a temporary access proof for a request.
 func (s *Silo) GenerateProof(path string, epoch int64) string {
 	s.mu.RLock()
 	snHex := s.sn
 	storedEpoch := s.epoch
+	sigs := s.signatures
 	s.mu.RUnlock()
 
-	// If we don't have a valid Sn for this epoch, we can't sign.
-	// The client should have called Handshake().
 	if snHex == "" || epoch != storedEpoch {
 		return ""
 	}
 
 	sn, _ := hex.DecodeString(snHex)
 
-	// 1. Extract Workspace ID from token
 	parts := strings.Split(strings.TrimPrefix(s.Token, "koda_wk_"), "_")
 	if len(parts) < 1 {
 		return ""
 	}
 	wsID := parts[0]
 
-	// 2. Resolve Geometry
-	g := Resolve(wsID, path)
+	g := Resolve(wsID, path, sigs)
 
-	// 3. Derive P = HMAC(Sn, G || epoch)
 	mac := hmac.New(sha256.New, sn)
 	payload := fmt.Sprintf("%d:%d", g, epoch)
 	mac.Write([]byte(payload))

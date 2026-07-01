@@ -16,13 +16,12 @@ type Silo struct {
 	Token   string
 	client  *http.Client
 
-	// Ephemeral state (Phase 5 - Stateless Evaluator)
-	// These are stored in volatile RAM only.
 	mu         sync.RWMutex
-	sn         string // The temporary session secret from the server
+	sn         string
 	epoch      int64
 	epochDelta int64
 	lastSync   time.Time
+	signatures map[string]string
 }
 
 // Connect initializes a new Silo client from a connection string.
@@ -51,22 +50,21 @@ func Connect(connectionURI string) (*Silo, error) {
 		client:  &http.Client{},
 	}
 
-	// Handshake immediately to get the first Sn
 	if err := s.Handshake(); err != nil {
-		// We don't fail connect, but the first request might fail if not synced
+		// Handshake failure
 	}
 
 	return s, nil
 }
 
 type handshakeResponse struct {
-	SN         string `json:"sn"`
-	Epoch      int64  `json:"epoch"`
-	EpochDelta int64  `json:"epoch_delta"`
+	SN         string            `json:"sn"`
+	Epoch      int64             `json:"epoch"`
+	EpochDelta int64             `json:"epoch_delta"`
+	Signatures map[string]string `json:"signatures"`
 }
 
-// Handshake fetches the temporary session secret from the server.
-// This hides the evolution math from the SDK.
+// Handshake fetches temporary session parameters from the server.
 func (s *Silo) Handshake() error {
 	req, _ := http.NewRequest("POST", s.BaseURL+"/handshake", nil)
 	req.Header.Set("Authorization", "Bearer "+s.Token)
@@ -91,12 +89,13 @@ func (s *Silo) Handshake() error {
 	s.epoch = res.Epoch
 	s.epochDelta = res.EpochDelta
 	s.lastSync = time.Now()
+	s.signatures = res.Signatures
 	s.mu.Unlock()
 
 	return nil
 }
 
-// CurrentEpoch returns the estimated current server epoch.
+// CurrentEpoch returns the current estimated server window.
 func (s *Silo) CurrentEpoch() int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
