@@ -53,21 +53,32 @@ func (st *LCTState) Mix(b byte) (v1, v2, v3 uint64) {
 	x := new(big.Int).Add(new(big.Int).SetUint64(uint64(b)), s)
 	x.Mod(x, p)
 
+	// Projected coordinates (y and z are constant for 1D->3D)
 	y := big.NewInt(1)
 	z := big.NewInt(2)
 
+	// Matrix coefficients
 	a := new(big.Int).Add(big.NewInt(2), s)
 	e := new(big.Int).Add(big.NewInt(3), s)
 	i := new(big.Int).Add(big.NewInt(23), s)
 
+	// v1 = a*x + 5*y + 7*z
 	vv1 := new(big.Int).Mul(a, x)
-	vv1.Add(vv1, big.NewInt(5*1 + 7*2)).Mod(vv1, p)
+	vv1.Add(vv1, new(big.Int).Mul(big.NewInt(5), y))
+	vv1.Add(vv1, new(big.Int).Mul(big.NewInt(7), z))
+	vv1.Mod(vv1, p)
 
+	// v2 = 11*x + e*y + 13*z
 	vv2 := new(big.Int).Mul(big.NewInt(11), x)
-	vv2.Add(vv2, new(big.Int).Add(e, big.NewInt(13*2))).Mod(vv2, p)
+	vv2.Add(vv2, new(big.Int).Mul(e, y))
+	vv2.Add(vv2, new(big.Int).Mul(big.NewInt(13), z))
+	vv2.Mod(vv2, p)
 
+	// v3 = 17*x + 19*y + i*z
 	vv3 := new(big.Int).Mul(big.NewInt(17), x)
-	vv3.Add(vv3, new(big.Int).Add(big.NewInt(19*1), new(big.Int).Mul(i, z))).Mod(vv3, p)
+	vv3.Add(vv3, new(big.Int).Mul(big.NewInt(19), y))
+	vv3.Add(vv3, new(big.Int).Mul(i, z))
+	vv3.Mod(vv3, p)
 
 	return vv1.Uint64(), vv2.Uint64(), vv3.Uint64()
 }
@@ -86,6 +97,7 @@ func (st *LCTState) Unmix(v1, v2, v3 uint64) byte {
 	h := big.NewInt(19)
 	i := new(big.Int).Add(big.NewInt(23), s)
 
+	// Determinant
 	ei_fh := new(big.Int).Sub(new(big.Int).Mul(e, i), new(big.Int).Mul(f, h))
 	di_fg := new(big.Int).Sub(new(big.Int).Mul(d, i), new(big.Int).Mul(f, g))
 	dh_eg := new(big.Int).Sub(new(big.Int).Mul(d, h), new(big.Int).Mul(e, g))
@@ -97,6 +109,7 @@ func (st *LCTState) Unmix(v1, v2, v3 uint64) byte {
 
 	detInv := new(big.Int).ModInverse(det, p)
 
+	// Adjugate entries for x
 	C11 := ei_fh
 	C21 := new(big.Int).Sub(new(big.Int).Mul(b, i), new(big.Int).Mul(c, h))
 	C21.Neg(C21)
