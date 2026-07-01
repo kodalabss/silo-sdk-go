@@ -111,9 +111,24 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
 
+	// Substance Layer: LCT Transformation
+	valBytes, _ := json.Marshal(value)
+
+	s.mu.RLock()
+	sn := s.sn
+	s.mu.RUnlock()
+
+	var finalValue interface{}
+	if sn != "" {
+		// Data vibrates into noise before transport
+		finalValue = LCTEncode(valBytes, []byte(sn))
+	} else {
+		finalValue = value
+	}
+
 	payload := map[string]interface{}{
 		"path":  path,
-		"value": value,
+		"value": finalValue,
 	}
 
 	if len(opts) > 0 {
