@@ -116,24 +116,3 @@ func (s *Silo) CurrentEpoch() int64 {
 	elapsed := int64(time.Since(s.lastSync).Seconds())
 	return s.epoch + (elapsed / s.epochDelta)
 }
-
-func (s *Silo) Marshal(v interface{}) ([]byte, error) {
-	return json.Marshal(v)
-}
-
-func (s *Silo) RawGetWithProof(path, proof, nonce, wsID string) int {
-	reqObj := map[string]string{"path": path}
-	reqBody, _ := json.Marshal(reqObj)
-	req, _ := http.NewRequest("GET", s.BaseURL+"/get", bytes.NewBuffer(reqBody))
-	req.Header.Set("X-Silo-Workspace-ID", wsID)
-	req.Header.Set("X-Silo-Proof", proof)
-	req.Header.Set("X-Silo-Nonce", nonce)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return 0
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode
-}
