@@ -84,15 +84,13 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		return nil, 0, MapErrorCode(result.Error)
 	}
 
-	// Substance Layer: LCT Inversion
 	s.mu.RLock()
 	sn := s.sn
 	s.mu.RUnlock()
 
 	if sn != "" {
 		var vectors []uint64
-		if err := json.Unmarshal(result.Value, &vectors); err == nil && len(vectors)%3 == 0 {
-			// If it looks like vectors, attempt decoding
+		if err := json.Unmarshal(result.Value, &vectors); err == nil && len(vectors)%3 == 0 && len(vectors) > 0 {
 			decoded := LCTDecode(vectors, []byte(sn))
 			return decoded, result.T, nil
 		}
@@ -101,31 +99,10 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 	return result.Value, result.T, nil
 }
 
-func (s *Silo) GetWithPathAndProof(path, proof, nonce string) (json.RawMessage, uint64, error) {
-	reqObj := map[string]string{"path": path}
-	reqBody, _ := json.Marshal(reqObj)
-	req, _ := http.NewRequest("GET", s.BaseURL+"/get", bytes.NewBuffer(reqBody))
-	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
-	req.Header.Set("X-Silo-Proof", proof)
-	req.Header.Set("X-Silo-Nonce", nonce)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-
-	var result GetResponse
-	json.NewDecoder(resp.Body).Decode(&result)
-	return result.Value, result.T, nil
-}
-
 func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, error) {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
 
-	// Substance Layer: LCT Transformation
 	valBytes, _ := json.Marshal(value)
 
 	s.mu.RLock()
@@ -134,7 +111,6 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 
 	var finalValue interface{}
 	if sn != "" {
-		// Data vibrates into noise before transport
 		finalValue = LCTEncode(valBytes, []byte(sn))
 	} else {
 		finalValue = value
