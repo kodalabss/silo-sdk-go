@@ -37,10 +37,10 @@ func (st *LCTState) Evolve(b byte) {
 	i2 := new(big.Int).Mul(iBig, iBig)
 	i2.Mul(i2, big.NewInt(7)).Mod(i2, p)
 
-	bk := big.NewInt(int64(b) + 1)
+	bv := big.NewInt(int64(b) + 1)
 
 	newS := new(big.Int).Add(s3, s13)
-	newS.Add(newS, i2).Add(newS, bk).Mod(newS, p)
+	newS.Add(newS, i2).Add(newS, bv).Mod(newS, p)
 
 	st.S = newS
 	st.i++
@@ -61,13 +61,13 @@ func (st *LCTState) Mix(b byte) (v1, v2, v3 uint64) {
 	i := new(big.Int).Add(big.NewInt(23), s)
 
 	vv1 := new(big.Int).Mul(a, x)
-	vv1.Add(vv1, new(big.Int).Mul(big.NewInt(5), y)).Add(vv1, new(big.Int).Mul(big.NewInt(7), z)).Mod(vv1, p)
+	vv1.Add(vv1, big.NewInt(5*1 + 7*2)).Mod(vv1, p)
 
 	vv2 := new(big.Int).Mul(big.NewInt(11), x)
-	vv2.Add(vv2, new(big.Int).Mul(e, y)).Add(vv2, new(big.Int).Mul(big.NewInt(13), z)).Mod(vv2, p)
+	vv2.Add(vv2, new(big.Int).Add(e, big.NewInt(13*2))).Mod(vv2, p)
 
 	vv3 := new(big.Int).Mul(big.NewInt(17), x)
-	vv3.Add(vv3, new(big.Int).Mul(big.NewInt(19), y)).Add(vv3, new(big.Int).Mul(i, z)).Mod(vv3, p)
+	vv3.Add(vv3, new(big.Int).Add(big.NewInt(19*1), new(big.Int).Mul(i, z))).Mod(vv3, p)
 
 	return vv1.Uint64(), vv2.Uint64(), vv3.Uint64()
 }

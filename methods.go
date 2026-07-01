@@ -85,13 +85,14 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 	}
 
 	s.mu.RLock()
-	sn := s.sn
+	snHex := s.sn
 	s.mu.RUnlock()
 
-	if sn != "" {
+	if snHex != "" {
+		sn, _ := hex.DecodeString(snHex)
 		var vectors []uint64
 		if err := json.Unmarshal(result.Value, &vectors); err == nil && len(vectors)%3 == 0 && len(vectors) > 0 {
-			decoded := LCTDecode(vectors, []byte(sn))
+			decoded := LCTDecode(vectors, sn)
 			return decoded, result.T, nil
 		}
 	}
@@ -106,12 +107,13 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 	valBytes, _ := json.Marshal(value)
 
 	s.mu.RLock()
-	sn := s.sn
+	snHex := s.sn
 	s.mu.RUnlock()
 
 	var finalValue interface{}
-	if sn != "" {
-		finalValue = LCTEncode(valBytes, []byte(sn))
+	if snHex != "" {
+		sn, _ := hex.DecodeString(snHex)
+		finalValue = LCTEncode(valBytes, sn)
 	} else {
 		finalValue = value
 	}

@@ -1,8 +1,10 @@
 package silo
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -114,4 +116,23 @@ func (s *Silo) CurrentEpoch() int64 {
 
 	elapsed := int64(time.Since(s.lastSync).Seconds())
 	return s.epoch + (elapsed / s.epochDelta)
+}
+
+func (s *Silo) RawGet(path string) []byte {
+	epoch := s.CurrentEpoch()
+	nonce := NewNonce()
+	reqObj := map[string]string{"path": path}
+	reqBody, _ := json.Marshal(reqObj)
+	reqHash := HashBody(reqBody)
+	proof := s.GenerateProof(path, reqHash, nonce, epoch)
+
+	req, _ := http.NewRequest("GET", s.BaseURL+"/get", bytes.NewBuffer(reqBody))
+	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
+	req.Header.Set("X-Silo-Proof", proof)
+	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, _ := s.client.Do(req)
+	body, _ := io.ReadAll(resp.Body)
+	return body
 }
