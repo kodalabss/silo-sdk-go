@@ -87,6 +87,26 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 	return result.Value, result.T, nil
 }
 
+func (s *Silo) GetWithPathAndProof(path, proof, nonce string) (json.RawMessage, uint64, error) {
+	reqObj := map[string]string{"path": path}
+	reqBody, _ := json.Marshal(reqObj)
+	req, _ := http.NewRequest("GET", s.BaseURL+"/get", bytes.NewBuffer(reqBody))
+	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
+	req.Header.Set("X-Silo-Proof", proof)
+	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	var result GetResponse
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.Value, result.T, nil
+}
+
 func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, error) {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
