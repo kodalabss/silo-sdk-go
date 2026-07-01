@@ -93,9 +93,11 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		sn, _ := hex.DecodeString(snHex)
 		var hexSubstance string
 		if err := json.Unmarshal(result.Value, &hexSubstance); err == nil {
-			decoded := LCTUnpack(hexSubstance, sn)
-			if decoded != nil {
+			decoded, err := LCTUnpack(hexSubstance, sn)
+			if err == nil {
 				return decoded, result.T, nil
+			} else if err == ErrLCTCorruption {
+				return nil, 0, err
 			}
 		}
 	}
