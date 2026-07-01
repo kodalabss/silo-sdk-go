@@ -33,10 +33,8 @@ func (st *LCTState) Evolve(block []byte) {
 	p := new(big.Int).SetUint64(st.P)
 
 	term1 := new(big.Int).Exp(si, big.NewInt(3), p)
-
 	term2 := new(big.Int).Mul(big.NewInt(13), si)
 	term2.Mod(term2, p)
-
 	idx := big.NewInt(int64(st.index))
 	term3 := new(big.Int).Mul(big.NewInt(7), new(big.Int).Mul(idx, idx))
 	term3.Mod(term3, p)
@@ -58,16 +56,25 @@ func (st *LCTState) Evolve(block []byte) {
 	st.index++
 }
 
-// Project transforms a block of 3 bytes into a vector (x, y, z)
-func (st *LCTState) Project(b []byte) (x, y, z uint64) {
-	var b0, b1, b2 uint64
-	if len(b) > 0 { b0 = uint64(b[0]) }
-	if len(b) > 1 { b1 = uint64(b[1]) }
-	if len(b) > 2 { b2 = uint64(b[2]) }
+// Project transforms a single byte into a coordinate (x, y, z)
+func (st *LCTState) Project(b byte) (x, y, z uint64) {
+	x = (uint64(b) + st.S) % st.P
 
-	x = (b0 + st.S) % st.P
-	y = (b1*b1 + 5*st.S) % st.P
-	z = (3*b2 + 7*y + st.S) % st.P
+	// y = (x^2 + 5s) mod P
+	xx := new(big.Int).SetUint64(x)
+	p := new(big.Int).SetUint64(st.P)
+	yVal := new(big.Int).Mul(xx, xx)
+	yVal.Add(yVal, new(big.Int).Mul(big.NewInt(5), new(big.Int).SetUint64(st.S)))
+	yVal.Mod(yVal, p)
+	y = yVal.Uint64()
+
+	// z = (3x + 7y + s) mod P
+	zVal := new(big.Int).Mul(big.NewInt(3), xx)
+	zVal.Add(zVal, new(big.Int).Mul(big.NewInt(7), yVal))
+	zVal.Add(zVal, new(big.Int).SetUint64(st.S))
+	zVal.Mod(zVal, p)
+	z = zVal.Uint64()
+
 	return
 }
 
@@ -80,23 +87,96 @@ func (st *LCTState) Mix(x, y, z uint64) (v1, v2, v3 uint64) {
 	return
 }
 
-// LCTEncode transforms plaintext bytes into a sequence of LCT vectors
+// Unmix solves M*[x,y,z] = [v1,v2,v3] mod P
+func (st *LCTState) Unmix(v1, v2, v3 uint64) (x, y, z uint64) {
+	s := new(big.Int).SetUint64(st.S)
+	p := new(big.Int).SetUint64(st.P)
+
+	a := new(big.Int).Add(big.NewInt(2), s)
+	b := big.NewInt(5)
+	c := big.NewInt(7)
+	d := big.NewInt(11)
+	e := new(big.Int).Add(big.NewInt(3), s)
+	f := big.NewInt(13)
+	g := big.NewInt(17)
+	h := big.NewInt(19)
+	i := new(big.Int).Add(big.NewInt(23), s)
+
+	// Adjugate matrix entries (cofactors)
+	ei_fh := new(big.Int).Sub(new(big.Int).Mul(e, i), new(big.Int).Mul(f, h))
+	di_fg := new(big.Int).Sub(new(big.Int).Mul(d, i), new(big.Int).Mul(f, g))
+	dh_eg := new(big.Int).Sub(new(big.Int).Mul(d, h), new(big.Int).Mul(e, g))
+
+	det := new(big.Int).Mul(a, ei_fh)
+	det.Sub(det, new(big.Int).Mul(b, di_fg))
+	det.Add(det, new(big.Int).Mul(c, dh_eg))
+	det.Mod(det, p)
+
+	detInv := new(big.Int).ModInverse(det, p)
+
+	A := ei_fh
+	B := new(big.Int).Neg(di_fg)
+	C := dh_eg
+	D := new(big.Int).Neg(new(big.Int).Sub(new(big.Int).Mul(b, i), new(big.Int).Mul(c, h)))
+	E := new(big.Int).Sub(new(big.Int).Mul(a, i), new(big.Int).Mul(c, g))
+	F := new(big.Int).Neg(new(big.Int).Sub(new(big.Int).Mul(a, h), new(big.Int).Mul(b, g)))
+	G := new(big.Int).Sub(new(big.Int).Mul(b, f), new(big.Int).Mul(c, e))
+	H := new(big.Int).Neg(new(big.Int).Sub(new(big.Int).Mul(a, f), new(big.Int).Mul(c, d)))
+	I := new(big.Int).Sub(new(big.Int).Mul(a, e), new(big.Int).Mul(b, d))
+
+	vv1 := new(big.Int).SetUint64(v1)
+	vv2 := new(big.Int).SetUint64(v2)
+	vv3 := new(big.Int).SetUint64(v3)
+
+	rx := new(big.Int).Mul(A, vv1)
+	rx.Add(rx, new(big.Int).Mul(D, vv2))
+	rx.Add(rx, new(big.Int).Mul(G, vv3))
+	rx.Mul(rx, detInv)
+	rx.Mod(rx, p)
+
+	ry := new(big.Int).Mul(B, vv1)
+	ry.Add(ry, new(big.Int).Mul(E, vv2))
+	ry.Add(ry, new(big.Int).Mul(H, vv3))
+	ry.Mul(ry, detInv)
+	ry.Mod(ry, p)
+
+	rz := new(big.Int).Mul(C, vv1)
+	rz.Add(rz, new(big.Int).Mul(F, vv2))
+	rz.Add(rz, new(big.Int).Mul(I, vv3))
+	rz.Mul(rz, detInv)
+	rz.Mod(rz, p)
+
+	return rx.Uint64(), ry.Uint64(), rz.Uint64()
+}
+
 func LCTEncode(data []byte, seed []byte) []uint64 {
 	st := NewLCTState(seed)
 	var output []uint64
 
-	for i := 0; i < len(data); i += 3 {
-		end := i + 3
-		if end > len(data) {
-			end = len(data)
-		}
-		block := data[i:end]
-
-		x, y, z := st.Project(block)
+	for _, b := range data {
+		x, y, z := st.Project(b)
 		v1, v2, v3 := st.Mix(x, y, z)
 		output = append(output, v1, v2, v3)
+		st.Evolve([]byte{b})
+	}
 
-		st.Evolve(block)
+	return output
+}
+
+func LCTDecode(vectors []uint64, seed []byte) []byte {
+	st := NewLCTState(seed)
+	var output []byte
+
+	for i := 0; i < len(vectors); i += 3 {
+		v1, v2, v3 := vectors[i], vectors[i+1], vectors[i+2]
+		x, _, _ := st.Unmix(v1, v2, v3)
+
+		// b = (x - s) mod P
+		b := (x + st.P - (st.S % st.P)) % st.P
+		val := byte(b & 0xFF)
+		output = append(output, val)
+
+		st.Evolve([]byte{val})
 	}
 
 	return output

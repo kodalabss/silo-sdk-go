@@ -84,6 +84,20 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		return nil, 0, MapErrorCode(result.Error)
 	}
 
+	// Substance Layer: LCT Inversion
+	s.mu.RLock()
+	sn := s.sn
+	s.mu.RUnlock()
+
+	if sn != "" {
+		var vectors []uint64
+		if err := json.Unmarshal(result.Value, &vectors); err == nil && len(vectors)%3 == 0 {
+			// If it looks like vectors, attempt decoding
+			decoded := LCTDecode(vectors, []byte(sn))
+			return decoded, result.T, nil
+		}
+	}
+
 	return result.Value, result.T, nil
 }
 
