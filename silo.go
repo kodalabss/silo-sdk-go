@@ -2,6 +2,8 @@ package silo
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,11 +46,17 @@ func Connect(connectionURI string) (*Silo, error) {
 	scheme := "https"
 	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") { scheme = "http" }
 
+	// Scale Hardening: Seed the counter with random 32-bit value to prevent ID collisions
+	var b [4]byte
+	rand.Read(b[:])
+	startCount := uint64(binary.BigEndian.Uint32(b[:]))
+
 	s := &Silo{
-		BaseURL: fmt.Sprintf("%s://%s", scheme, host),
-		Token:   token,
-		wsID:    wsID,
-		client:  &http.Client{},
+		BaseURL:    fmt.Sprintf("%s://%s", scheme, host),
+		Token:      token,
+		wsID:       wsID,
+		client:     &http.Client{},
+		reqCounter: startCount,
 	}
 	s.Handshake()
 	return s, nil
@@ -76,11 +84,12 @@ func (s *Silo) CurrentEpoch() int64 {
 	return s.epoch + (elapsed / s.epochDelta)
 }
 
-// NextSequence: Strict Timestamp (Micro) + 3-digit padded atomic counter.
+// NextSequence: Nanosecond precision + Padded Atomic Counter.
 func (s *Silo) NextSequence() string {
-	ts := time.Now().UnixNano() / 1000
+	ts := time.Now().UnixNano()
 	count := atomic.AddUint64(&s.reqCounter, 1)
-	return fmt.Sprintf("%d%03d", ts, count%1000)
+	// Format: [UnixNano (19 digits)][Padded Count (6 digits)]
+	return fmt.Sprintf("%019d%06d", ts, count%1000000)
 }
 
 func (s *Silo) RawGet(path string) []byte {
