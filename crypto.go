@@ -34,30 +34,35 @@ func Resolve(workspaceID string, path string, signatures map[string]string) uint
 	return hFinal
 }
 
-// GenerateProof creates a temporary access proof for a request.
-func (s *Silo) GenerateProof(path string, epoch int64) string {
+// GenerateProof creates a temporary access proof bound to the request.
+func (s *Silo) GenerateProof(path string, reqHash string, nonce string, epoch int64) string {
 	s.mu.RLock()
 	snHex := s.sn
 	storedEpoch := s.epoch
 	sigs := s.signatures
+	wsID := s.wsID
 	s.mu.RUnlock()
 
-	if snHex == "" || epoch != storedEpoch {
+	if snHex == "" || epoch != storedEpoch || wsID == "" {
 		return ""
 	}
 
 	sn, _ := hex.DecodeString(snHex)
-
-	parts := strings.Split(strings.TrimPrefix(s.Token, "koda_wk_"), "_")
-	if len(parts) < 1 {
-		return ""
-	}
-	wsID := parts[0]
-
 	g := Resolve(wsID, path, sigs)
 
+	// Formula: P = HMAC(Sn, G || epoch || nonce || reqHash)
 	mac := hmac.New(sha256.New, sn)
-	payload := fmt.Sprintf("%d:%d", g, epoch)
+	payload := fmt.Sprintf("%d:%d:%s:%s", g, epoch, nonce, reqHash)
 	mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// HashBody returns a hex sha256 of the data.
+func HashBody(data []byte) string {
+	if data == nil {
+		return ""
+	}
+	h := sha256.New()
+	h.Write(data)
+	return hex.EncodeToString(h.Sum(nil))
 }

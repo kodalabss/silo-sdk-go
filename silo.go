@@ -14,6 +14,7 @@ import (
 type Silo struct {
 	BaseURL string
 	Token   string
+	wsID    string // Extracted from token, non-secret
 	client  *http.Client
 
 	mu         sync.RWMutex
@@ -39,6 +40,13 @@ func Connect(connectionURI string) (*Silo, error) {
 	token, _ := parsed.User.Password()
 	host := parsed.Host
 
+	// Extract Workspace ID from token (koda_wk_{id}_{sig})
+	parts := strings.Split(strings.TrimPrefix(token, "koda_wk_"), "_")
+	wsID := ""
+	if len(parts) > 0 {
+		wsID = parts[0]
+	}
+
 	scheme := "https"
 	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
 		scheme = "http"
@@ -47,6 +55,7 @@ func Connect(connectionURI string) (*Silo, error) {
 	s := &Silo{
 		BaseURL: fmt.Sprintf("%s://%s", scheme, host),
 		Token:   token,
+		wsID:    wsID,
 		client:  &http.Client{},
 	}
 
