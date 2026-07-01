@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -57,16 +58,18 @@ func NewNonce() string {
 func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
+	sequence := s.NextSequence()
 
 	reqObj := map[string]string{"path": path}
 	reqBody, _ := json.Marshal(reqObj)
 	reqHash := HashBody(reqBody)
-	proof := s.GenerateProof(path, reqHash, nonce, epoch)
+	proof := s.GenerateProof(path, reqHash, nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("GET", s.BaseURL+"/get", bytes.NewBuffer(reqBody))
 	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -74,6 +77,10 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		return nil, 0, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, 0, fmt.Errorf("path_not_found")
+	}
 
 	var result GetResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -84,7 +91,6 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		return nil, 0, MapErrorCode(result.Error)
 	}
 
-	// Substance Layer: LCT Inversion
 	s.mu.RLock()
 	snHex := s.sn
 	s.mu.RUnlock()
@@ -108,6 +114,7 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, error) {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
+	sequence := s.NextSequence()
 
 	valBytes, _ := json.Marshal(value)
 
@@ -139,12 +146,13 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 
 	reqBody, _ := json.Marshal(payload)
 	reqHash := HashBody(reqBody)
-	proof := s.GenerateProof(path, reqHash, nonce, epoch)
+	proof := s.GenerateProof(path, reqHash, nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("PUT", s.BaseURL+"/set", bytes.NewBuffer(reqBody))
 	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -168,16 +176,18 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 func (s *Silo) Del(path string) error {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
+	sequence := s.NextSequence()
 
 	reqObj := map[string]string{"path": path}
 	reqBody, _ := json.Marshal(reqObj)
 	reqHash := HashBody(reqBody)
-	proof := s.GenerateProof(path, reqHash, nonce, epoch)
+	proof := s.GenerateProof(path, reqHash, nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("DELETE", s.BaseURL+"/del", bytes.NewBuffer(reqBody))
 	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -202,12 +212,13 @@ func (s *Silo) Del(path string) error {
 func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
+	sequence := s.NextSequence()
 
 	reqBody, _ := json.Marshal(map[string]interface{}{"writes": writes})
 	reqHash := HashBody(reqBody)
 
 	for i := range writes {
-		writes[i].Proof = s.GenerateProof(writes[i].Path, reqHash, nonce, epoch)
+		writes[i].Proof = s.GenerateProof(writes[i].Path, reqHash, nonce, sequence, epoch)
 	}
 
 	finalBody, _ := json.Marshal(map[string]interface{}{"writes": writes})
@@ -215,6 +226,7 @@ func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 	req, _ := http.NewRequest("PUT", s.BaseURL+"/batch", bytes.NewBuffer(finalBody))
 	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
 	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -237,7 +249,8 @@ func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
-	proof := s.GenerateProof(path, "", nonce, epoch)
+	sequence := s.NextSequence()
+	proof := s.GenerateProof(path, "", nonce, sequence, epoch)
 
 	u, _ := url.Parse(s.BaseURL + "/watch")
 	q := u.Query()
@@ -248,6 +261,7 @@ func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
 
 	resp, err := s.client.Do(req)
 	if err != nil {

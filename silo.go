@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,6 +26,8 @@ type Silo struct {
 	epochDelta int64
 	lastSync   time.Time
 	signatures map[string]string
+
+	sequence uint64
 }
 
 // Connect initializes a new Silo client from a connection string.
@@ -118,21 +121,32 @@ func (s *Silo) CurrentEpoch() int64 {
 	return s.epoch + (elapsed / s.epochDelta)
 }
 
+func (s *Silo) NextSequence() string {
+	seq := atomic.AddUint64(&s.sequence, 1)
+	return fmt.Sprintf("%d", seq)
+}
+
 func (s *Silo) RawGet(path string) []byte {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
+	sequence := s.NextSequence()
 	reqObj := map[string]string{"path": path}
 	reqBody, _ := json.Marshal(reqObj)
 	reqHash := HashBody(reqBody)
-	proof := s.GenerateProof(path, reqHash, nonce, epoch)
+	proof := s.GenerateProof(path, reqHash, nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("GET", s.BaseURL+"/get", bytes.NewBuffer(reqBody))
 	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, _ := s.client.Do(req)
+	if resp == nil || resp.Body == nil {
+		return nil
+	}
+	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	return body
 }

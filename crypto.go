@@ -35,7 +35,7 @@ func Resolve(workspaceID string, path string, signatures map[string]string) uint
 }
 
 // GenerateProof creates a temporary access proof bound to the request.
-func (s *Silo) GenerateProof(path string, reqHash string, nonce string, epoch int64) string {
+func (s *Silo) GenerateProof(path string, reqHash string, nonce string, sequenceID string, epoch int64) string {
 	s.mu.RLock()
 	snHex := s.sn
 	storedEpoch := s.epoch
@@ -43,16 +43,16 @@ func (s *Silo) GenerateProof(path string, reqHash string, nonce string, epoch in
 	wsID := s.wsID
 	s.mu.RUnlock()
 
-	if snHex == "" || epoch != storedEpoch || wsID == "" {
+	if snHex == "" || epoch < storedEpoch-1 || wsID == "" {
 		return ""
 	}
 
 	sn, _ := hex.DecodeString(snHex)
 	g := Resolve(wsID, path, sigs)
 
-	// Formula: P = HMAC(Sn, G || epoch || nonce || reqHash)
+	// Formula: P = HMAC(Sn, G || epoch || nonce || sequenceID || reqHash)
 	mac := hmac.New(sha256.New, sn)
-	payload := fmt.Sprintf("%d:%d:%s:%s", g, epoch, nonce, reqHash)
+	payload := fmt.Sprintf("%d:%d:%s:%s:%s", g, epoch, nonce, sequenceID, reqHash)
 	mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
 }
