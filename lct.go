@@ -18,11 +18,11 @@ type LCTState struct {
 
 func NewLCTState(seed []byte) *LCTState {
 	h := sha256.Sum256(seed)
-	sVal := binary.BigEndian.Uint64(h[:8])
+	sVal := new(big.Int).SetUint64(binary.BigEndian.Uint64(h[:8]))
 	p := new(big.Int).SetUint64(LCT_P)
 	return &LCTState{
 		P:     p,
-		S:     new(big.Int).Mod(new(big.Int).SetUint64(sVal), p),
+		S:     new(big.Int).Mod(sVal, p),
 		index: 0,
 	}
 }
@@ -31,19 +31,14 @@ func (st *LCTState) Evolve(block []byte) {
 	p := st.P
 	s := st.S
 
-	// Si^3 mod P
 	term1 := new(big.Int).Exp(s, big.NewInt(3), p)
-
-	// 13Si mod P
 	term2 := new(big.Int).Mul(big.NewInt(13), s)
 	term2.Mod(term2, p)
 
-	// 7i^2 mod P
 	idx := big.NewInt(int64(st.index))
 	term3 := new(big.Int).Mul(big.NewInt(7), new(big.Int).Mul(idx, idx))
 	term3.Mod(term3, p)
 
-	// Sum(k+1)bk mod P
 	sum := big.NewInt(0)
 	for k, b := range block {
 		bk := big.NewInt(int64(b))
@@ -52,13 +47,10 @@ func (st *LCTState) Evolve(block []byte) {
 	}
 	sum.Mod(sum, p)
 
-	// S(i+1) = (term1 + term2 + term3 + sum) mod P
-	newS := new(big.Int).Add(term1, term2)
-	newS.Add(newS, term3)
-	newS.Add(newS, sum)
-	newS.Mod(newS, p)
-
-	st.S = newS
+	st.S = new(big.Int).Add(term1, term2)
+	st.S.Add(st.S, term3)
+	st.S.Add(st.S, sum)
+	st.S.Mod(st.S, p)
 	st.index++
 }
 
@@ -131,13 +123,6 @@ func (st *LCTState) Unmix(v1, v2, v3 *big.Int) (x, y, z *big.Int) {
 	C12.Neg(C12)
 	C13 := new(big.Int).Sub(new(big.Int).Mul(d, h), new(big.Int).Mul(e, g))
 
-	det := new(big.Int).Mul(a, C11)
-	det.Add(det, new(big.Int).Mul(b, C12))
-	det.Add(det, new(big.Int).Mul(c, C13))
-	det.Mod(det, p)
-
-	detInv := new(big.Int).ModInverse(det, p)
-
 	C21 := new(big.Int).Sub(new(big.Int).Mul(b, i), new(big.Int).Mul(c, h))
 	C21.Neg(C21)
 	C22 := new(big.Int).Sub(new(big.Int).Mul(a, i), new(big.Int).Mul(c, g))
@@ -148,6 +133,13 @@ func (st *LCTState) Unmix(v1, v2, v3 *big.Int) (x, y, z *big.Int) {
 	C32 := new(big.Int).Sub(new(big.Int).Mul(a, f), new(big.Int).Mul(c, d))
 	C32.Neg(C32)
 	C33 := new(big.Int).Sub(new(big.Int).Mul(a, e), new(big.Int).Mul(b, d))
+
+	det := new(big.Int).Mul(a, C11)
+	det.Add(det, new(big.Int).Mul(b, C12))
+	det.Add(det, new(big.Int).Mul(c, C13))
+	det.Mod(det, p)
+
+	detInv := new(big.Int).ModInverse(det, p)
 
 	x = new(big.Int).Mul(C11, v1)
 	x.Add(x, new(big.Int).Mul(C21, v2))
@@ -191,8 +183,6 @@ func LCTDecode(vectors []uint64, seed []byte) []byte {
 
 		x, _, _ := st.Unmix(v1, v2, v3)
 
-		// b = (x - s) mod P
-		// Using (x - s + P) mod P to ensure positive result
 		b := new(big.Int).Sub(x, st.S)
 		b.Add(b, st.P)
 		b.Mod(b, st.P)
