@@ -56,6 +56,10 @@ type TopResponse struct {
 }
 
 func (s *Silo) TopK(dimension string, k int, direction string) ([]string, error) {
+	epoch := s.CurrentEpoch()
+	nonce := NewNonce()
+	sequence := s.NextSequence()
+
 	u, _ := url.Parse(s.BaseURL + "/top")
 	q := u.Query()
 	q.Set("dimension", dimension)
@@ -63,7 +67,15 @@ func (s *Silo) TopK(dimension string, k int, direction string) ([]string, error)
 	q.Set("direction", direction)
 	u.RawQuery = q.Encode()
 
+	// Projections live in the __proj__ namespace
+	projPath := "__proj__/" + dimension
+	proof := s.GenerateProof(projPath, "", nonce, sequence, epoch)
+
 	req, _ := http.NewRequest("GET", u.String(), nil)
+	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
+	req.Header.Set("X-Silo-Proof", proof)
+	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Authorization", "Bearer "+s.Token)
 
 	resp, err := s.client.Do(req)
