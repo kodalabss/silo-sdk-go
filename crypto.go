@@ -36,20 +36,34 @@ func Resolve(workspaceID string, path string, signatures map[string]string) uint
 	return hFinal
 }
 
+// DeriveS0 creates the root secret from the workspace key.
+func (s *Silo) DeriveS0() []byte {
+	h := sha256.New()
+	h.Write([]byte(s.Token))
+	return h.Sum(nil)
+}
+
+// DeriveSn evolves the root secret into the current session secret.
+func (s *Silo) DeriveSn(epoch int64) []byte {
+	s0 := s.DeriveS0()
+	h := sha256.New()
+	h.Write(s0)
+	h.Write([]byte(fmt.Sprintf("%d", epoch)))
+	return h.Sum(nil)
+}
+
 // GenerateProof creates a temporary access proof bound to the request.
 func (s *Silo) GenerateProof(path string, reqHash string, nonce string, sequenceID string, epoch int64) string {
 	s.mu.RLock()
-	snHex := s.sn
-	storedEpoch := s.epoch
 	sigs := s.signatures
 	wsID := s.wsID
 	s.mu.RUnlock()
 
-	if snHex == "" || epoch < storedEpoch-1 || wsID == "" {
+	if wsID == "" {
 		return ""
 	}
 
-	sn, _ := hex.DecodeString(snHex)
+	sn := s.DeriveSn(epoch)
 	g := Resolve(wsID, path, sigs)
 
 	// Formula: P = HMAC(Sn, G || epoch || nonce || sequenceID || reqHash)

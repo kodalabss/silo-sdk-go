@@ -76,7 +76,6 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		req.Header.Set("X-Silo-Nonce", nonce)
 		req.Header.Set("X-Silo-Sequence", sequence)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+s.Token)
 
 		resp, err := s.client.Do(req)
 		if err != nil {
@@ -105,18 +104,12 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 			return nil, 0, MapErrorCode(result.Error)
 		}
 
-		s.mu.RLock()
-		snHex := s.sn
-		s.mu.RUnlock()
-
-		if snHex != "" {
-			sn, _ := hex.DecodeString(snHex)
-			var hexSubstance string
-			if err := json.Unmarshal(result.Value, &hexSubstance); err == nil {
-				decoded, err := LCTUnpack(hexSubstance, sn)
-				if err == nil {
-					return decoded, result.T, nil
-				}
+		sn := s.DeriveSn(epoch)
+		var hexSubstance string
+		if err := json.Unmarshal(result.Value, &hexSubstance); err == nil {
+			decoded, err := LCTUnpack(hexSubstance, sn)
+			if err == nil {
+				return decoded, result.T, nil
 			}
 		}
 
@@ -136,18 +129,10 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 	for retry := 0; retry < 2; retry++ {
 		valBytes, _ := json.Marshal(value)
 
-		s.mu.RLock()
-		snHex := s.sn
 		epoch := s.CurrentEpoch()
-		s.mu.RUnlock()
+		sn := s.DeriveSn(epoch)
 
-		var finalValue interface{}
-		if snHex != "" {
-			sn, _ := hex.DecodeString(snHex)
-			finalValue = LCTPack(valBytes, sn)
-		} else {
-			finalValue = value
-		}
+		finalValue := LCTPack(valBytes, sn)
 
 		nonce := NewNonce()
 		sequence := s.NextSequence()
@@ -172,7 +157,6 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 		req.Header.Set("X-Silo-Nonce", nonce)
 		req.Header.Set("X-Silo-Sequence", sequence)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+s.Token)
 
 		resp, err := s.client.Do(req)
 		if err != nil {
@@ -219,7 +203,6 @@ func (s *Silo) Del(path string) error {
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.Token)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -241,22 +224,12 @@ func (s *Silo) Del(path string) error {
 }
 
 func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
-	s.mu.RLock()
-	snHex := s.sn
 	epoch := s.CurrentEpoch()
-	s.mu.RUnlock()
+	sn := s.DeriveSn(epoch)
 
-	var sn []byte
-	if snHex != "" {
-		sn, _ = hex.DecodeString(snHex)
-	}
-
-	// Transforming values into substance (noise)
 	for i := range writes {
-		if sn != nil {
-			valBytes, _ := json.Marshal(writes[i].Value)
-			writes[i].Value = LCTPack(valBytes, sn)
-		}
+		valBytes, _ := json.Marshal(writes[i].Value)
+		writes[i].Value = LCTPack(valBytes, sn)
 	}
 
 	nonce := NewNonce()
@@ -276,7 +249,6 @@ func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+s.Token)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -311,7 +283,6 @@ func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
-	req.Header.Set("Authorization", "Bearer "+s.Token)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -344,13 +315,23 @@ func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 }
 
 func (s *Silo) Register(segment string, fields []string) (map[string]string, error) {
+	epoch := s.CurrentEpoch()
+	nonce := NewNonce()
+	sequence := s.NextSequence()
+
 	payload := map[string]interface{}{
 		"segment": segment,
 		"fields":  fields,
 	}
 	reqBody, _ := json.Marshal(payload)
+	reqHash := HashBody(reqBody)
+	proof := s.GenerateProof("", reqHash, nonce, sequence, epoch)
+
 	req, _ := http.NewRequest("POST", s.BaseURL+"/register", bytes.NewBuffer(reqBody))
-	req.Header.Set("Authorization", "Bearer "+s.Token)
+	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
+	req.Header.Set("X-Silo-Proof", proof)
+	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)

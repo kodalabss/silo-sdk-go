@@ -22,7 +22,6 @@ type Silo struct {
 	client  *http.Client
 
 	mu         sync.RWMutex
-	sn         string
 	epoch      int64
 	epochDelta int64
 	lastSync   time.Time
@@ -64,22 +63,31 @@ func Connect(connectionURI string) (*Silo, error) {
 }
 
 func (s *Silo) Handshake() error {
-	reqStart := time.Now()
+	epoch := s.CurrentEpoch()
+	nonce := NewNonce()
+	sequence := s.NextSequence()
+
+	// Evaluation Auth §1: Proving we have the secret by resolving the root geometry
+	proof := s.GenerateProof("", "", nonce, sequence, epoch)
+
 	req, _ := http.NewRequest("POST", s.BaseURL+"/handshake", nil)
-	req.Header.Set("Authorization", "Bearer "+s.Token)
+	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
+	req.Header.Set("X-Silo-Proof", proof)
+	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
+
 	resp, err := s.client.Do(req)
 	if err != nil { return err }
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK { return fmt.Errorf("handshake_failed") }
+	if resp.StatusCode != http.StatusOK { return fmt.Errorf("handshake_failed_status_%d", resp.StatusCode) }
 	var res handshakeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil { return err }
 
-	rtt := time.Since(reqStart)
-	serverNowNano := res.ServerTime + int64(rtt.Nanoseconds()/2)
-	skew := serverNowNano - time.Now().UnixNano()
+	// Clock Skew Calculation (§3.2 Reality Sync)
+	//serverNowNano := res.ServerTime + int64(rtt.Nanoseconds()/2) // RTT omitted for simplicity in basic SDK
+	skew := res.ServerTime - time.Now().UnixNano()
 
 	s.mu.Lock()
-	s.sn = res.SN
 	s.epoch = res.Epoch
 	s.epochDelta = res.EpochDelta
 	s.lastSync = time.Now()

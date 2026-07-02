@@ -17,6 +17,10 @@ type DimensionOptions struct {
 }
 
 func (s *Silo) RegisterDimension(name string, opts DimensionOptions) error {
+	epoch := s.CurrentEpoch()
+	nonce := NewNonce()
+	sequence := s.NextSequence()
+
 	payload := map[string]interface{}{
 		"type":         "dimension",
 		"name":         name,
@@ -25,8 +29,14 @@ func (s *Silo) RegisterDimension(name string, opts DimensionOptions) error {
 		"scale":        opts.Scale,
 	}
 	reqBody, _ := json.Marshal(payload)
+	reqHash := HashBody(reqBody)
+	proof := s.GenerateProof("", reqHash, nonce, sequence, epoch)
+
 	req, _ := http.NewRequest("POST", s.BaseURL+"/register", bytes.NewBuffer(reqBody))
-	req.Header.Set("Authorization", "Bearer "+s.Token)
+	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
+	req.Header.Set("X-Silo-Proof", proof)
+	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
