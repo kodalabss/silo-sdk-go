@@ -56,6 +56,7 @@ func Connect(connectionURI string) (*Silo, error) {
 		wsID:       wsID,
 		client:     &http.Client{},
 		reqCounter: startCount,
+		epochDelta: 30, // Default per SGES §2.1
 	}
 	err = s.Handshake()
 	if err != nil { return nil, err }
