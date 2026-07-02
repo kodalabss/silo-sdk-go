@@ -1,6 +1,7 @@
 package silo
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -63,12 +64,19 @@ func HashBody(data []byte) string {
 	if data == nil || len(data) == 0 {
 		return ""
 	}
+	// Sanitize to match server-side TrimSpace
+	clean := bytes.TrimSpace(data)
+	if len(clean) == 0 {
+		return ""
+	}
 	h := sha256.New()
-	h.Write(data)
+	h.Write(clean)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
 // StableMarshal produces a deterministic JSON string by sorting keys.
 func StableMarshal(v interface{}) ([]byte, error) {
-	return json.Marshal(v)
+	data, err := json.Marshal(v)
+	if err != nil { return nil, err }
+	return bytes.TrimSpace(data), nil
 }
