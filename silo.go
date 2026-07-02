@@ -27,6 +27,7 @@ type Silo struct {
 	epochDelta int64
 	lastSync   time.Time
 	signatures map[string]string
+	clockSkew  int64 // Nano seconds skew
 
 	reqCounter uint64
 }
@@ -46,7 +47,6 @@ func Connect(connectionURI string) (*Silo, error) {
 	scheme := "https"
 	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") { scheme = "http" }
 
-	// Scale Hardening: Seed the counter with random 32-bit value to prevent ID collisions
 	var b [4]byte
 	rand.Read(b[:])
 	startCount := uint64(binary.BigEndian.Uint32(b[:]))
@@ -58,11 +58,13 @@ func Connect(connectionURI string) (*Silo, error) {
 		client:     &http.Client{},
 		reqCounter: startCount,
 	}
-	s.Handshake()
+	err = s.Handshake()
+	if err != nil { return nil, err }
 	return s, nil
 }
 
 func (s *Silo) Handshake() error {
+	reqStart := time.Now()
 	req, _ := http.NewRequest("POST", s.BaseURL+"/handshake", nil)
 	req.Header.Set("Authorization", "Bearer "+s.Token)
 	resp, err := s.client.Do(req)
@@ -71,8 +73,18 @@ func (s *Silo) Handshake() error {
 	if resp.StatusCode != http.StatusOK { return fmt.Errorf("handshake_failed") }
 	var res handshakeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil { return err }
+
+	rtt := time.Since(reqStart)
+	serverNowNano := res.ServerTime + int64(rtt.Nanoseconds()/2)
+	skew := serverNowNano - time.Now().UnixNano()
+
 	s.mu.Lock()
-	s.sn = res.SN; s.epoch = res.Epoch; s.epochDelta = res.EpochDelta; s.lastSync = time.Now(); s.signatures = res.Signatures
+	s.sn = res.SN
+	s.epoch = res.Epoch
+	s.epochDelta = res.EpochDelta
+	s.lastSync = time.Now()
+	s.signatures = res.Signatures
+	s.clockSkew = skew
 	s.mu.Unlock()
 	return nil
 }
@@ -80,15 +92,17 @@ func (s *Silo) Handshake() error {
 func (s *Silo) CurrentEpoch() int64 {
 	s.mu.RLock(); defer s.mu.RUnlock()
 	if s.epochDelta == 0 { return 0 }
-	elapsed := int64(time.Since(s.lastSync).Seconds())
-	return s.epoch + (elapsed / s.epochDelta)
+	now := time.Now().UnixNano() + s.clockSkew
+	return (now / 1e9) / s.epochDelta
 }
 
-// NextSequence: Nanosecond precision + Padded Atomic Counter.
 func (s *Silo) NextSequence() string {
-	ts := time.Now().UnixNano()
+	s.mu.RLock()
+	skew := s.clockSkew
+	s.mu.RUnlock()
+
+	ts := time.Now().UnixNano() + skew
 	count := atomic.AddUint64(&s.reqCounter, 1)
-	// Format: [UnixNano (19 digits)][Padded Count (6 digits)]
 	return fmt.Sprintf("%019d%06d", ts, count%1000000)
 }
 
@@ -118,4 +132,5 @@ type handshakeResponse struct {
 	Epoch      int64             `json:"epoch"`
 	EpochDelta int64             `json:"epoch_delta"`
 	Signatures map[string]string `json:"signatures"`
+	ServerTime int64             `json:"server_time"`
 }

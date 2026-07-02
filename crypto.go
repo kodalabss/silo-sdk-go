@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"github.com/cespare/xxhash/v2"
 	"strings"
@@ -65,4 +66,9 @@ func HashBody(data []byte) string {
 	h := sha256.New()
 	h.Write(data)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// StableMarshal produces a deterministic JSON string by sorting keys.
+func StableMarshal(v interface{}) ([]byte, error) {
+	return json.Marshal(v)
 }

@@ -3,6 +3,7 @@ package silo
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -80,7 +81,7 @@ func (s *Silo) TopK(dimension string, k int, direction string) ([]string, error)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("TopK_request_failed: %v", err)
 	}
 	defer resp.Body.Close()
 
