@@ -112,23 +112,37 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 }
 
 func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, error) {
-	epoch := s.CurrentEpoch()
-	nonce := NewNonce()
-	sequence := s.NextSequence()
+	// AXIOM: All substance is noise.
+	// Every write must pass through the Lattice Cascade Transform.
 
 	valBytes, _ := json.Marshal(value)
 
 	s.mu.RLock()
 	snHex := s.sn
+	epoch := s.CurrentEpoch()
+	storedEpoch := s.epoch
 	s.mu.RUnlock()
+
+	// If Sn is expired (beyond the 1-epoch buffer), re-sync before writing
+	if epoch > storedEpoch+1 || epoch < storedEpoch-1 {
+		s.Handshake()
+		s.mu.RLock()
+		snHex = s.sn
+		epoch = s.CurrentEpoch()
+		s.mu.RUnlock()
+	}
 
 	var finalValue interface{}
 	if snHex != "" {
 		sn, _ := hex.DecodeString(snHex)
+		// Substance Layer (LCT) §2.4
 		finalValue = LCTPack(valBytes, sn)
 	} else {
 		finalValue = value
 	}
+
+	nonce := NewNonce()
+	sequence := s.NextSequence()
 
 	payload := map[string]interface{}{
 		"path":  path,
@@ -210,7 +224,34 @@ func (s *Silo) Del(path string) error {
 }
 
 func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
+	s.mu.RLock()
+	snHex := s.sn
 	epoch := s.CurrentEpoch()
+	storedEpoch := s.epoch
+	s.mu.RUnlock()
+
+	// Proactive Re-sync
+	if epoch > storedEpoch+1 || epoch < storedEpoch-1 {
+		s.Handshake()
+		s.mu.RLock()
+		snHex = s.sn
+		epoch = s.CurrentEpoch()
+		s.mu.RUnlock()
+	}
+
+	var sn []byte
+	if snHex != "" {
+		sn, _ = hex.DecodeString(snHex)
+	}
+
+	// Transforming values into substance (noise)
+	for i := range writes {
+		if sn != nil {
+			valBytes, _ := json.Marshal(writes[i].Value)
+			writes[i].Value = LCTPack(valBytes, sn)
+		}
+	}
+
 	nonce := NewNonce()
 	sequence := s.NextSequence()
 
