@@ -59,7 +59,7 @@ func (s *Silo) GenerateProof(path string, reqHash string, nonce string, sequence
 
 // HashBody returns a hex sha256 of the data.
 func HashBody(data []byte) string {
-	if data == nil {
+	if data == nil || len(data) == 0 {
 		return ""
 	}
 	h := sha256.New()
