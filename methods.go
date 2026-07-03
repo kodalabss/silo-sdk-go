@@ -245,7 +245,6 @@ func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 
 	req, _ := http.NewRequest("PUT", s.BaseURL+"/batch", bytes.NewBuffer(finalBody))
 	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
-	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
