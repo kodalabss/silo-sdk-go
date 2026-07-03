@@ -104,10 +104,10 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 			return nil, 0, MapErrorCode(result.Error)
 		}
 
-		sn := s.DeriveSn(epoch)
+		// AXIOM: Substance is bound to Identity.
 		var hexSubstance string
 		if err := json.Unmarshal(result.Value, &hexSubstance); err == nil {
-			decoded, err := LCTUnpack(hexSubstance, sn)
+			decoded, err := LCTUnpack(hexSubstance, []byte(s.Token))
 			if err == nil {
 				return decoded, result.T, nil
 			}
@@ -129,11 +129,12 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 	for retry := 0; retry < 2; retry++ {
 		valBytes, _ := json.Marshal(value)
 
+		// AXIOM: Substance is bound to Identity.
+		// We use the static Token (WK) as the LCT seed to ensure
+		// the Brain's X-ray vision always aligns with the SDK.
+		finalValue := LCTPack(valBytes, []byte(s.Token))
+
 		epoch := s.CurrentEpoch()
-		sn := s.DeriveSn(epoch)
-
-		finalValue := LCTPack(valBytes, sn)
-
 		nonce := NewNonce()
 		sequence := s.NextSequence()
 
@@ -224,14 +225,13 @@ func (s *Silo) Del(path string) error {
 }
 
 func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
-	epoch := s.CurrentEpoch()
-	sn := s.DeriveSn(epoch)
-
+	// Transforming values into substance (noise) bound to Identity
 	for i := range writes {
 		valBytes, _ := json.Marshal(writes[i].Value)
-		writes[i].Value = LCTPack(valBytes, sn)
+		writes[i].Value = LCTPack(valBytes, []byte(s.Token))
 	}
 
+	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
 	sequence := s.NextSequence()
 
