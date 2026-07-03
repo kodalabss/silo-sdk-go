@@ -129,12 +129,10 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 	for retry := 0; retry < 2; retry++ {
 		valBytes, _ := json.Marshal(value)
 
+		epoch := s.CurrentEpoch()
 		// AXIOM: Substance is bound to Identity.
-		// We use the static Token (WK) as the LCT seed to ensure
-		// the Brain's X-ray vision always aligns with the SDK.
 		finalValue := LCTPack(valBytes, []byte(s.Token))
 
-		epoch := s.CurrentEpoch()
 		nonce := NewNonce()
 		sequence := s.NextSequence()
 
@@ -225,13 +223,14 @@ func (s *Silo) Del(path string) error {
 }
 
 func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
+	epoch := s.CurrentEpoch()
+
 	// Transforming values into substance (noise) bound to Identity
 	for i := range writes {
 		valBytes, _ := json.Marshal(writes[i].Value)
 		writes[i].Value = LCTPack(valBytes, []byte(s.Token))
 	}
 
-	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
 	sequence := s.NextSequence()
 
@@ -246,6 +245,7 @@ func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 
 	req, _ := http.NewRequest("PUT", s.BaseURL+"/batch", bytes.NewBuffer(finalBody))
 	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
+	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")
