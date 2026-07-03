@@ -31,13 +31,11 @@ func Resolve(workspaceID string, path string, signatures map[string]string) uint
 		input := fmt.Sprintf("%s:%d", segment, pos)
 
 		// AXIOM: Geometric Layering (Field-Level Sovereignty)
-		if i == 2 { // Field Level
+		// We only apply the signature at the field level (i=2) to anchor it.
+		// The segment level (i=0) is now static to stop the Nomad Drift.
+		if i == 2 {
 			key := fmt.Sprintf("%s:%s", segmentName, segment)
 			if sig, ok := signatures[key]; ok {
-				input = fmt.Sprintf("%s:%s:%d", segment, sig, pos)
-			}
-		} else if i == 0 { // Segment Level
-			if sig, ok := signatures[segment]; ok {
 				input = fmt.Sprintf("%s:%s:%d", segment, sig, pos)
 			}
 		}
