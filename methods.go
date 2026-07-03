@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 type GetResponse struct {
@@ -109,6 +111,14 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		if err := json.Unmarshal(result.Value, &hexSubstance); err == nil {
 			decoded, err := LCTUnpack(hexSubstance, []byte(s.Token))
 			if err == nil {
+				// If we unpacked LCT, we might have MessagePack bytes.
+				// To maintain compatibility with user expectations (JSON),
+				// we attempt to transcode.
+				var v interface{}
+				if err := msgpack.Unmarshal(decoded, &v); err == nil {
+					jsonBytes, _ := json.Marshal(v)
+					return jsonBytes, result.T, nil
+				}
 				return decoded, result.T, nil
 			}
 		}
@@ -127,7 +137,10 @@ type SetRequest struct {
 
 func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, error) {
 	for retry := 0; retry < 2; retry++ {
-		valBytes, _ := json.Marshal(value)
+		// AXIOM: Binary Substance Standard.
+		// We use MessagePack to ensure data types (integers) are preserved
+		// across the wire, avoiding the JSON ASCII interpretation bug.
+		valBytes, _ := msgpack.Marshal(value)
 
 		epoch := s.CurrentEpoch()
 		// AXIOM: Substance is bound to Identity.
@@ -225,9 +238,9 @@ func (s *Silo) Del(path string) error {
 func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 	epoch := s.CurrentEpoch()
 
-	// Transforming values into substance (noise) bound to Identity
+	// Transforming values into binary substance (MessagePack) then noise (LCT)
 	for i := range writes {
-		valBytes, _ := json.Marshal(writes[i].Value)
+		valBytes, _ := msgpack.Marshal(writes[i].Value)
 		writes[i].Value = LCTPack(valBytes, []byte(s.Token))
 	}
 
