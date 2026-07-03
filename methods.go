@@ -247,17 +247,18 @@ func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 	nonce := NewNonce()
 	sequence := s.NextSequence()
 
-	reqBody, _ := json.Marshal(map[string]interface{}{"writes": writes})
-	reqHash := HashBody(reqBody)
+	// 1. Prepare Envelope
+	payload := map[string]interface{}{"writes": writes}
+	finalBody, _ := json.Marshal(payload)
+	reqHash := HashBody(finalBody)
 
-	for i := range writes {
-		writes[i].Proof = s.GenerateProof(writes[i].Path, reqHash, nonce, sequence, epoch)
-	}
-
-	finalBody, _ := json.Marshal(map[string]interface{}{"writes": writes})
+	// 2. Generate Top-Level Proof for the entire batch (§17.2)
+	// We use the root geometry "" to authorize the envelope.
+	proof := s.GenerateProof("", reqHash, nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("PUT", s.BaseURL+"/batch", bytes.NewBuffer(finalBody))
 	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
+	req.Header.Set("X-Silo-Proof", proof) // NEW: Envelope Proof
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
 	req.Header.Set("Content-Type", "application/json")

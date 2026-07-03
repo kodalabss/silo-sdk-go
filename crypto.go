@@ -17,18 +17,29 @@ func H(input string) uint64 {
 }
 
 // Resolve maps a path to a numeric coordinate.
+// Now implements Field-Level Sovereignty (Geometric Layering).
 func Resolve(workspaceID string, path string, signatures map[string]string) uint64 {
 	hFinal := H(fmt.Sprintf("%s:0", workspaceID))
 	if path == "" {
 		return hFinal
 	}
 	segments := strings.Split(path, "/")
+	segmentName := segments[0]
+
 	for i, segment := range segments {
 		pos := i + 1
 		input := fmt.Sprintf("%s:%d", segment, pos)
 
-		if sig, ok := signatures[segment]; ok {
-			input = fmt.Sprintf("%s:%s:%d", segment, sig, pos)
+		// AXIOM: Geometric Layering (Field-Level Sovereignty)
+		if i == 2 { // Field Level
+			key := fmt.Sprintf("%s:%s", segmentName, segment)
+			if sig, ok := signatures[key]; ok {
+				input = fmt.Sprintf("%s:%s:%d", segment, sig, pos)
+			}
+		} else if i == 0 { // Segment Level
+			if sig, ok := signatures[segment]; ok {
+				input = fmt.Sprintf("%s:%s:%d", segment, sig, pos)
+			}
 		}
 
 		hFinal ^= H(input)

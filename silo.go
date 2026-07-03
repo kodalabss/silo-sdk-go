@@ -54,7 +54,12 @@ func Connect(connectionURI string) (*Silo, error) {
 		BaseURL:    fmt.Sprintf("%s://%s", scheme, host),
 		Token:      token,
 		wsID:       wsID,
-		client:     &http.Client{},
+		client: &http.Client{
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 100,
+			},
+		},
 		reqCounter: startCount,
 		epochDelta: 30, // Default per SGES §2.1
 	}
