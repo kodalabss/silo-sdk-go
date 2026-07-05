@@ -6,32 +6,39 @@ import (
 	"encoding/hex"
 	"errors"
 	"math/big"
+	"sync"
 )
 
-const LCT_P_STR = "2305843009213693951"
+const protocolPValue = "2305843009213693951"
 
 var (
-	ErrLCTCorruption = errors.New("LCT_SUBSTANCE_CORRUPTION_ERROR: Reality parity mismatch")
+	// ErrSubstanceCorruption is returned when data integrity fails.
+	ErrSubstanceCorruption = errors.New("SUBSTANCE_CORRUPTION: Integrity verification failed")
 )
 
-type LCTState struct {
-	P *big.Int
-	S *big.Int
-	i int64
+// State maintains the internal vibration state for the session.
+type State struct {
+	P  *big.Int
+	S  *big.Int
+	i  int64
+	mu sync.Mutex
 }
 
-func NewLCTState(seed []byte) *LCTState {
+// NewState initializes a new session state from the provided seed.
+func NewState(seed []byte) *State {
 	h := sha256.Sum256(seed)
 	sVal := new(big.Int).SetUint64(binary.BigEndian.Uint64(h[:8]))
-	p, _ := new(big.Int).SetString(LCT_P_STR, 10)
-	return &LCTState{
+	p, _ := new(big.Int).SetString(protocolPValue, 10)
+	return &State{
 		P: p,
 		S: new(big.Int).Mod(sVal, p),
 		i: 0,
 	}
 }
 
-func (st *LCTState) Evolve(b byte) {
+func (st *State) evolve(b byte) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	p := st.P
 	s := st.S
 	s3 := new(big.Int).Exp(s, big.NewInt(3), p)
@@ -47,9 +54,11 @@ func (st *LCTState) Evolve(b byte) {
 	st.i++
 }
 
-func (st *LCTState) Mix(b byte) (v1, v2, v3 uint64) {
+func (st *State) mix(b byte) (v1, v2, v3 uint64) {
+	st.mu.Lock()
 	p := st.P
 	s := st.S
+	st.mu.Unlock()
 
 	x := new(big.Int).Add(new(big.Int).SetUint64(uint64(b)), s)
 	x.Mod(x, p)
@@ -76,9 +85,12 @@ func (st *LCTState) Mix(b byte) (v1, v2, v3 uint64) {
 	return vv1.Uint64(), vv2.Uint64(), vv3.Uint64()
 }
 
-func (st *LCTState) Unmix(v1, v2, v3 uint64) (byte, error) {
+func (st *State) unmix(v1, v2, v3 uint64) (byte, error) {
+	st.mu.Lock()
 	p := st.P
 	s := st.S
+	st.mu.Unlock()
+
 	a := new(big.Int).Add(big.NewInt(2), s)
 	bConst := big.NewInt(5)
 	cConst := big.NewInt(7)
@@ -117,11 +129,9 @@ func (st *LCTState) Unmix(v1, v2, v3 uint64) (byte, error) {
 	ry := new(big.Int).Mul(adj21, vv1); ry.Add(ry, new(big.Int).Mul(adj22, vv2)).Add(ry, new(big.Int).Mul(adj23, vv3)); ry.Mul(ry, detInv).Mod(ry, p)
 	rz := new(big.Int).Mul(adj31, vv1); rz.Add(rz, new(big.Int).Mul(adj32, vv2)).Add(rz, new(big.Int).Mul(adj33, vv3)); rz.Mul(rz, detInv).Mod(rz, p)
 
-	// Recover b from x
 	recoveredBVal := new(big.Int).Sub(rx, s); recoveredBVal.Add(recoveredBVal, p).Mod(recoveredBVal, p)
 	b := byte(recoveredBVal.Uint64() & 0xFF)
 
-	// Re-project y and z from rx to verify reality
 	expectedY := new(big.Int).Mul(rx, rx)
 	expectedY.Add(expectedY, new(big.Int).Mul(big.NewInt(5), s)).Mod(expectedY, p)
 
@@ -129,42 +139,42 @@ func (st *LCTState) Unmix(v1, v2, v3 uint64) (byte, error) {
 	expectedZ.Add(expectedZ, new(big.Int).Mul(big.NewInt(7), expectedY)).Add(expectedZ, s).Mod(expectedZ, p)
 
 	if ry.Cmp(expectedY) != 0 || rz.Cmp(expectedZ) != 0 {
-		return 0, ErrLCTCorruption
+		return 0, ErrSubstanceCorruption
 	}
 
 	return b, nil
 }
 
-func LCTPack(data []byte, seed []byte) string {
-	st := NewLCTState(seed)
+// SubstancePack transforms a byte slice into an armored hex string.
+func SubstancePack(data []byte, st *State) string {
 	buf := make([]byte, len(data)*24)
 	for i, b := range data {
-		v1, v2, v3 := st.Mix(b)
+		v1, v2, v3 := st.mix(b)
 		binary.BigEndian.PutUint64(buf[i*24:], v1)
 		binary.BigEndian.PutUint64(buf[i*24+8:], v2)
 		binary.BigEndian.PutUint64(buf[i*24+16:], v3)
-		st.Evolve(b)
+		st.evolve(b)
 	}
 	return hex.EncodeToString(buf)
 }
 
-func LCTUnpack(hexData string, seed []byte) ([]byte, error) {
+// SubstanceUnpack recovers the original byte slice from an armored hex string.
+func SubstanceUnpack(hexData string, st *State) ([]byte, error) {
 	buf, err := hex.DecodeString(hexData)
 	if err != nil || len(buf)%24 != 0 {
-		return nil, errors.New("invalid substance format")
+		return nil, errors.New("invalid format")
 	}
-	st := NewLCTState(seed)
 	var output []byte
 	for i := 0; i < len(buf); i += 24 {
 		v1 := binary.BigEndian.Uint64(buf[i:])
 		v2 := binary.BigEndian.Uint64(buf[i+8:])
 		v3 := binary.BigEndian.Uint64(buf[i+16:])
-		b, err := st.Unmix(v1, v2, v3)
+		b, err := st.unmix(v1, v2, v3)
 		if err != nil {
 			return nil, err
 		}
 		output = append(output, b)
-		st.Evolve(b)
+		st.evolve(b)
 	}
 	return output, nil
 }

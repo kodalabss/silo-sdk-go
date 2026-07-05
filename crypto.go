@@ -16,8 +16,7 @@ func H(input string) uint64 {
 	return xxhash.Sum64([]byte(input))
 }
 
-// Resolve maps a path to a numeric coordinate.
-// Now implements Field-Level Sovereignty (Geometric Layering).
+// Resolve maps a path to a deterministic numeric coordinate.
 func Resolve(workspaceID string, path string, signatures map[string]string) uint64 {
 	hFinal := H(fmt.Sprintf("%s:0", workspaceID))
 	if path == "" {
@@ -30,9 +29,6 @@ func Resolve(workspaceID string, path string, signatures map[string]string) uint
 		pos := i + 1
 		input := fmt.Sprintf("%s:%d", segment, pos)
 
-		// AXIOM: Geometric Layering (Field-Level Sovereignty)
-		// We only apply the signature at the field level (i=2) to anchor it.
-		// The segment level (i=0) is now static to stop the Nomad Drift.
 		if i == 2 {
 			key := fmt.Sprintf("%s:%s", segmentName, segment)
 			if sig, ok := signatures[key]; ok {
@@ -52,7 +48,7 @@ func (s *Silo) DeriveS0() []byte {
 	return h.Sum(nil)
 }
 
-// DeriveSn evolves the root secret into the current session secret.
+// DeriveSn evolves the root secret into a session secret.
 func (s *Silo) DeriveSn(epoch int64) []byte {
 	s0 := s.DeriveS0()
 	h := sha256.New()
@@ -61,7 +57,7 @@ func (s *Silo) DeriveSn(epoch int64) []byte {
 	return h.Sum(nil)
 }
 
-// GenerateProof creates a temporary access proof bound to the request.
+// GenerateProof creates an access proof for a request.
 func (s *Silo) GenerateProof(path string, reqHash string, nonce string, sequenceID string, epoch int64) string {
 	s.mu.RLock()
 	sigs := s.signatures
@@ -75,7 +71,6 @@ func (s *Silo) GenerateProof(path string, reqHash string, nonce string, sequence
 	sn := s.DeriveSn(epoch)
 	g := Resolve(wsID, path, sigs)
 
-	// Formula: P = HMAC(Sn, G || epoch || nonce || sequenceID || reqHash)
 	mac := hmac.New(sha256.New, sn)
 	payload := fmt.Sprintf("%d:%d:%s:%s:%s", g, epoch, nonce, sequenceID, reqHash)
 	mac.Write([]byte(payload))
@@ -87,7 +82,6 @@ func HashBody(data []byte) string {
 	if data == nil || len(data) == 0 {
 		return ""
 	}
-	// Sanitize to match server-side TrimSpace
 	clean := bytes.TrimSpace(data)
 	if len(clean) == 0 {
 		return ""
@@ -97,9 +91,11 @@ func HashBody(data []byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// StableMarshal produces a deterministic JSON string by sorting keys.
+// StableMarshal produces a deterministic JSON string.
 func StableMarshal(v interface{}) ([]byte, error) {
 	data, err := json.Marshal(v)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return bytes.TrimSpace(data), nil
 }

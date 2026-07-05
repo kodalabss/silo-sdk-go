@@ -19,7 +19,8 @@ type GetResponse struct {
 	OK    bool            `json:"ok"`
 	Value json.RawMessage `json:"value,omitempty"`
 	T     uint64          `json:"T,omitempty"`
-	Error string          `json:"error,omitempty"`
+	Code  string          `json:"code,omitempty"`
+	Coord uint64          `json:"coord,omitempty"`
 }
 
 type SetOptions struct {
@@ -30,7 +31,8 @@ type SetOptions struct {
 type SetResponse struct {
 	OK    bool   `json:"ok"`
 	T     uint64 `json:"T,omitempty"`
-	Error string `json:"error,omitempty"`
+	Code  string `json:"code,omitempty"`
+	Coord uint64 `json:"coord,omitempty"`
 }
 
 type BatchWrite struct {
@@ -43,7 +45,8 @@ type BatchWrite struct {
 type BatchResult struct {
 	OK    bool   `json:"ok"`
 	T     uint64 `json:"T,omitempty"`
-	Error string `json:"error,omitempty"`
+	Code  string `json:"code,omitempty"`
+	Coord uint64 `json:"coord,omitempty"`
 }
 
 type WatchEvent struct {
@@ -61,6 +64,7 @@ type GetRequest struct {
 	Path string `json:"path"`
 }
 
+// Get retrieves a value from the specified path.
 func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 	for retry := 0; retry < 2; retry++ {
 		epoch := s.CurrentEpoch()
@@ -77,6 +81,8 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		req.Header.Set("X-Silo-Proof", proof)
 		req.Header.Set("X-Silo-Nonce", nonce)
 		req.Header.Set("X-Silo-Sequence", sequence)
+		req.Header.Set("X-Silo-Command", CommandRead)
+		req.Header.Set("X-Silo-Priority", PriorityNormal)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := s.client.Do(req)
@@ -87,10 +93,10 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 
 		if resp.StatusCode == http.StatusNotFound {
 			if retry == 0 {
-				s.Handshake()
+				s.Sync()
 				continue
 			}
-			return nil, 0, fmt.Errorf("path_not_found")
+			return nil, 0, MapErrorCode("GE_COORDINATE_VOID", 0)
 		}
 
 		var result GetResponse
@@ -99,28 +105,25 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		}
 
 		if !result.OK {
-			if retry == 0 && (result.Error == "invalid_api_key" || result.Error == "path_not_found") {
-				s.Handshake()
+			if retry == 0 && (result.Code == "ID_AUTH_FAIL" || result.Code == "GE_COORDINATE_VOID") {
+				s.Sync()
 				continue
 			}
-			return nil, 0, MapErrorCode(result.Error)
+			return nil, 0, MapErrorCode(result.Code, result.Coord)
 		}
 
-		// AXIOM: Substance is bound to Identity.
 		var hexSubstance string
 		if err := json.Unmarshal(result.Value, &hexSubstance); err == nil {
-			decoded, err := LCTUnpack(hexSubstance, []byte(s.Token))
-			if err == nil {
-				// If we unpacked LCT, we might have MessagePack bytes.
-				// To maintain compatibility with user expectations (JSON),
-				// we attempt to transcode.
-				var v interface{}
-				if err := msgpack.Unmarshal(decoded, &v); err == nil {
-					jsonBytes, _ := json.Marshal(v)
-					return jsonBytes, result.T, nil
-				}
-				return decoded, result.T, nil
+			decoded, err := SubstanceUnpack(hexSubstance, s.lctState)
+			if err != nil {
+				return nil, 0, fmt.Errorf("integrity_check_failed")
 			}
+			var v interface{}
+			if err := msgpack.Unmarshal(decoded, &v); err == nil {
+				jsonBytes, _ := json.Marshal(v)
+				return jsonBytes, result.T, nil
+			}
+			return decoded, result.T, nil
 		}
 
 		return result.Value, result.T, nil
@@ -128,23 +131,13 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 	return nil, 0, fmt.Errorf("max_retries_exceeded")
 }
 
-type SetRequest struct {
-	Path       string      `json:"path"`
-	Value      interface{} `json:"value"`
-	ExpectedT  uint64      `json:"expected_T,omitempty"`
-	TTLSeconds int64       `json:"ttl_seconds,omitempty"`
-}
-
+// Set stores a value at the specified path.
 func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, error) {
 	for retry := 0; retry < 2; retry++ {
-		// AXIOM: Binary Substance Standard.
-		// We use MessagePack to ensure data types (integers) are preserved
-		// across the wire, avoiding the JSON ASCII interpretation bug.
 		valBytes, _ := msgpack.Marshal(value)
 
 		epoch := s.CurrentEpoch()
-		// AXIOM: Substance is bound to Identity.
-		finalValue := LCTPack(valBytes, []byte(s.Token))
+		finalValue := SubstancePack(valBytes, s.lctState)
 
 		nonce := NewNonce()
 		sequence := s.NextSequence()
@@ -168,6 +161,8 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 		req.Header.Set("X-Silo-Proof", proof)
 		req.Header.Set("X-Silo-Nonce", nonce)
 		req.Header.Set("X-Silo-Sequence", sequence)
+		req.Header.Set("X-Silo-Command", CommandWrite)
+		req.Header.Set("X-Silo-Priority", PriorityHigh)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := s.client.Do(req)
@@ -177,7 +172,7 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 		defer resp.Body.Close()
 
 		if resp.StatusCode == http.StatusNotFound && retry == 0 {
-			s.Handshake()
+			s.Sync()
 			continue
 		}
 
@@ -187,11 +182,11 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 		}
 
 		if !result.OK {
-			if retry == 0 && (result.Error == "invalid_api_key" || result.Error == "path_not_found") {
-				s.Handshake()
+			if retry == 0 && (result.Code == "ID_AUTH_FAIL" || result.Code == "GE_COORDINATE_VOID") {
+				s.Sync()
 				continue
 			}
-			return 0, MapErrorCode(result.Error)
+			return 0, MapErrorCode(result.Code, result.Coord)
 		}
 
 		return result.T, nil
@@ -199,6 +194,7 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 	return 0, fmt.Errorf("max_retries_exceeded")
 }
 
+// Del removes the value at the specified path.
 func (s *Silo) Del(path string) error {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
@@ -214,6 +210,8 @@ func (s *Silo) Del(path string) error {
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
+	req.Header.Set("X-Silo-Command", CommandWrite)
+	req.Header.Set("X-Silo-Priority", PriorityHigh)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -224,43 +222,43 @@ func (s *Silo) Del(path string) error {
 
 	var result struct {
 		OK    bool   `json:"ok"`
-		Error string `json:"error,omitempty"`
+		Code  string `json:"code,omitempty"`
+		Coord uint64 `json:"coord,omitempty"`
 	}
 	json.NewDecoder(resp.Body).Decode(&result)
 
 	if !result.OK {
-		return MapErrorCode(result.Error)
+		return MapErrorCode(result.Code, result.Coord)
 	}
 
 	return nil
 }
 
+// Batch performs multiple write operations in a single request.
 func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 	epoch := s.CurrentEpoch()
 
-	// Transforming values into binary substance (MessagePack) then noise (LCT)
 	for i := range writes {
 		valBytes, _ := msgpack.Marshal(writes[i].Value)
-		writes[i].Value = LCTPack(valBytes, []byte(s.Token))
+		writes[i].Value = SubstancePack(valBytes, s.lctState)
 	}
 
 	nonce := NewNonce()
 	sequence := s.NextSequence()
 
-	// 1. Prepare Envelope
 	payload := map[string]interface{}{"writes": writes}
 	finalBody, _ := json.Marshal(payload)
 	reqHash := HashBody(finalBody)
 
-	// 2. Generate Top-Level Proof for the entire batch (§17.2)
-	// We use the root geometry "" to authorize the envelope.
 	proof := s.GenerateProof("", reqHash, nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("PUT", s.BaseURL+"/batch", bytes.NewBuffer(finalBody))
 	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
-	req.Header.Set("X-Silo-Proof", proof) // NEW: Envelope Proof
+	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
+	req.Header.Set("X-Silo-Command", CommandWrite)
+	req.Header.Set("X-Silo-Priority", PriorityHigh)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -280,6 +278,7 @@ func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 	return result.Results, nil
 }
 
+// Watch subscribes to real-time updates for a path.
 func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
@@ -296,6 +295,8 @@ func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
+	req.Header.Set("X-Silo-Command", CommandObserve)
+	req.Header.Set("X-Silo-Priority", PriorityNormal)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -327,7 +328,8 @@ func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 	return events, resp.Body, nil
 }
 
-func (s *Silo) Register(segment string, fields []string) (map[string]string, error) {
+// Schema defines the structure for a data segment.
+func (s *Silo) Schema(segment string, fields []string) (map[string]string, error) {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
 	sequence := s.NextSequence()
@@ -345,6 +347,8 @@ func (s *Silo) Register(segment string, fields []string) (map[string]string, err
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
+	req.Header.Set("X-Silo-Command", CommandStructure)
+	req.Header.Set("X-Silo-Priority", PriorityHigh)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -356,58 +360,111 @@ func (s *Silo) Register(segment string, fields []string) (map[string]string, err
 	var result struct {
 		Status     string            `json:"status"`
 		Normalized map[string]string `json:"normalized"`
-		Error      string            `json:"error,omitempty"`
+		Code       string            `json:"code,omitempty"`
+		Coord      uint64            `json:"coord,omitempty"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
-	if result.Error != "" {
-		return nil, MapErrorCode(result.Error)
+	if result.Code != "" {
+		return nil, MapErrorCode(result.Code, result.Coord)
 	}
 
 	return result.Normalized, nil
 }
 
-type SignInResult struct {
-	APIKey      string `json:"api_key"`
-	RecoveryKey string `json:"recovery_key"`
-}
+// Trace retrieves historical state changes for a path.
+func (s *Silo) Trace(path string) (<-chan WatchEvent, io.Closer, error) {
+	epoch := s.CurrentEpoch()
+	nonce := NewNonce()
+	sequence := s.NextSequence()
+	proof := s.GenerateProof(path, "", nonce, sequence, epoch)
 
-func SignIn(baseURL, name, password string) (*SignInResult, error) {
-	payload := map[string]string{"name": name, "password": password}
-	reqBody, _ := json.Marshal(payload)
-	resp, err := http.Post(baseURL+"/signin", "application/json", bytes.NewBuffer(reqBody))
+	u, _ := url.Parse(s.BaseURL + "/trace")
+	q := u.Query()
+	q.Set("path", path)
+	u.RawQuery = q.Encode()
+
+	req, _ := http.NewRequest("GET", u.String(), nil)
+	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
+	req.Header.Set("X-Silo-Proof", proof)
+	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
+	req.Header.Set("X-Silo-Command", CommandObserve)
+	req.Header.Set("X-Silo-Priority", PriorityLow)
+
+	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	defer resp.Body.Close()
 
-	var result SignInResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-	return &result, nil
+	events := make(chan WatchEvent)
+
+	go func() {
+		defer close(events)
+		defer resp.Body.Close()
+
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+
+			rawJSON := strings.TrimPrefix(line, "data: ")
+			var event WatchEvent
+			if err := json.Unmarshal([]byte(rawJSON), &event); err != nil {
+				continue
+			}
+			events <- event
+		}
+	}()
+
+	return events, resp.Body, nil
 }
 
-type CreateWorkspaceResult struct {
+type ProvisionResult struct {
 	WorkspaceID      string `json:"workspace_id"`
 	WorkspaceKey     string `json:"workspace_key"`
 	ConnectionString string `json:"connection_string"`
 }
 
-func CreateWorkspace(baseURL, appName string) (*CreateWorkspaceResult, error) {
+// Provision creates a new workspace.
+func Provision(baseURL, appName string) (*ProvisionResult, error) {
 	payload := map[string]string{"app_name": appName}
 	reqBody, _ := json.Marshal(payload)
-	resp, err := http.Post(baseURL+"/workspace/create", "application/json", bytes.NewBuffer(reqBody))
+	req, _ := http.NewRequest("POST", baseURL+"/workspace/create", bytes.NewBuffer(reqBody))
+	req.Header.Set("X-Silo-Command", CommandIdentity)
+	req.Header.Set("X-Silo-Priority", PriorityHigh)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var result CreateWorkspaceResult
+	var result ProvisionResult
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 	return &result, nil
+}
+
+// Ping checks the health of the connection.
+func (s *Silo) Ping() error {
+	req, _ := http.NewRequest("GET", s.BaseURL+"/health", nil)
+	req.Header.Set("X-Silo-Command", CommandSync)
+	req.Header.Set("X-Silo-Priority", PriorityLow)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("service_unavailable")
+	}
+	return nil
 }
