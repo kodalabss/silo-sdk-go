@@ -17,6 +17,7 @@ func H(input string) uint64 {
 }
 
 // Resolve maps a path to a deterministic numeric coordinate.
+// Mirrors internal/geometry/resolve.go exactly — must stay in sync.
 func Resolve(workspaceID string, path string, signatures map[string]string) uint64 {
 	hFinal := H(fmt.Sprintf("%s:0", workspaceID))
 	if path == "" {
@@ -24,6 +25,15 @@ func Resolve(workspaceID string, path string, signatures map[string]string) uint
 	}
 	segments := strings.Split(path, "/")
 	segmentName := segments[0]
+
+	// SILO_BRAIN §III — Projection floor consolidation (Private Brain Law)
+	if segmentName == "__proj__" && len(segments) == 4 {
+		floorPath := strings.Join(segments[:3], "/")
+		lCoord := uint64(0)
+		fmt.Sscanf(segments[3], "%d", &lCoord)
+		hFloor := Resolve(workspaceID, floorPath, nil)
+		return (hFloor & ^uint64(1023)) | (lCoord & 1023)
+	}
 
 	for i, segment := range segments {
 		pos := i + 1
@@ -57,7 +67,8 @@ func (s *Silo) DeriveSn(epoch int64) []byte {
 	return h.Sum(nil)
 }
 
-// GenerateProof creates an access proof for a request.
+// GenerateProof creates a unified access proof for a request.
+// SSGP §3.2 canonical formula: HMAC(Sn, G || τ || Nonce || Seq || ReqHash)
 func (s *Silo) GenerateProof(path string, reqHash string, nonce string, sequenceID string, epoch int64) string {
 	s.mu.RLock()
 	sigs := s.signatures
@@ -71,6 +82,7 @@ func (s *Silo) GenerateProof(path string, reqHash string, nonce string, sequence
 	sn := s.DeriveSn(epoch)
 	g := Resolve(wsID, path, sigs)
 
+	// Trinity Formula: HMAC(Sn, G || τ || Nonce || Seq || ReqHash)
 	mac := hmac.New(sha256.New, sn)
 	payload := fmt.Sprintf("%d:%d:%s:%s:%s", g, epoch, nonce, sequenceID, reqHash)
 	mac.Write([]byte(payload))

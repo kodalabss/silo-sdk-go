@@ -26,7 +26,6 @@ type TopResponse struct {
 // Anchor configures a mathematical layer for a field.
 func (s *Silo) Anchor(name string, opts AnchorOptions) error {
 	epoch := s.CurrentEpoch()
-	nonce := NewNonce()
 	sequence := s.NextSequence()
 
 	payload := map[string]interface{}{
@@ -36,8 +35,9 @@ func (s *Silo) Anchor(name string, opts AnchorOptions) error {
 		"direction":    opts.Direction,
 		"scale":        opts.Scale,
 	}
-	reqBody, _ := json.Marshal(payload)
+	reqBody, _ := StableMarshal(payload)
 	reqHash := HashBody(reqBody)
+	nonce := NewNonce()
 	proof := s.GenerateProof("", reqHash, nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("POST", s.BaseURL+"/register", bytes.NewBuffer(reqBody))
@@ -74,7 +74,6 @@ func (s *Silo) Anchor(name string, opts AnchorOptions) error {
 // Top retrieves the highest or lowest entities in a dimension.
 func (s *Silo) Top(dimension string, k int, direction string) ([]string, error) {
 	epoch := s.CurrentEpoch()
-	nonce := NewNonce()
 	sequence := s.NextSequence()
 
 	u, _ := url.Parse(s.BaseURL + "/top")
@@ -86,6 +85,7 @@ func (s *Silo) Top(dimension string, k int, direction string) ([]string, error) 
 
 	projPath := "__proj__/" + dimension
 	h := Resolve(s.wsID, projPath, s.signatures)
+	nonce := NewNonce()
 	proof := s.GenerateProof(projPath, "", nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
@@ -120,7 +120,6 @@ func (s *Silo) Top(dimension string, k int, direction string) ([]string, error) 
 // Match finds entities that exactly match a categorical value.
 func (s *Silo) Match(dimension string, value interface{}) ([]string, error) {
 	epoch := s.CurrentEpoch()
-	nonce := NewNonce()
 	sequence := s.NextSequence()
 
 	u, _ := url.Parse(s.BaseURL + "/match")
@@ -132,6 +131,7 @@ func (s *Silo) Match(dimension string, value interface{}) ([]string, error) {
 
 	projPath := "__proj__/" + dimension
 	h := Resolve(s.wsID, projPath, s.signatures)
+	nonce := NewNonce()
 	proof := s.GenerateProof(projPath, "", nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
@@ -163,7 +163,6 @@ func (s *Silo) Match(dimension string, value interface{}) ([]string, error) {
 // Range finds entities within a specified value range.
 func (s *Silo) Range(dimension string, start, end interface{}) ([]string, error) {
 	epoch := s.CurrentEpoch()
-	nonce := NewNonce()
 	sequence := s.NextSequence()
 
 	u, _ := url.Parse(s.BaseURL + "/range")
@@ -175,6 +174,7 @@ func (s *Silo) Range(dimension string, start, end interface{}) ([]string, error)
 
 	projPath := "__proj__/" + dimension
 	h := Resolve(s.wsID, projPath, s.signatures)
+	nonce := NewNonce()
 	proof := s.GenerateProof(projPath, "", nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
@@ -206,7 +206,6 @@ func (s *Silo) Range(dimension string, start, end interface{}) ([]string, error)
 // Stats retrieves distribution metrics for a dimension.
 func (s *Silo) Stats(dimension string) (map[string]interface{}, error) {
 	epoch := s.CurrentEpoch()
-	nonce := NewNonce()
 	sequence := s.NextSequence()
 
 	u, _ := url.Parse(s.BaseURL + "/stats")
@@ -216,6 +215,7 @@ func (s *Silo) Stats(dimension string) (map[string]interface{}, error) {
 
 	projPath := "__proj__/" + dimension
 	h := Resolve(s.wsID, projPath, s.signatures)
+	nonce := NewNonce()
 	proof := s.GenerateProof(projPath, "", nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("GET", u.String(), nil)

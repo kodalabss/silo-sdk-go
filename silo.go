@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -161,13 +160,14 @@ func (s *Silo) CurrentEpoch() int64 {
 }
 
 func (s *Silo) NextSequence() string {
-	s.mu.RLock()
-	skew := s.clockSkew
-	s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	ts := time.Now().UnixNano() + skew
-	count := atomic.AddUint64(&s.reqCounter, 1)
-	return fmt.Sprintf("%019d%06d", ts, count%1000000)
+	// Metropolis Rule: Sequence is monotonic + predictive
+	ts := time.Now().UnixNano() + s.clockSkew
+	sVal := s.lctState.S.Uint64()
+
+	return fmt.Sprintf("%019d%016x", ts, sVal)
 }
 
 type SignInResult struct {
@@ -203,7 +203,9 @@ func SignIn(baseURL, name, password string) (*SignInResult, error) {
 	return &result, nil
 }
 
-func (s *Silo) Proof(path string, reqHash string) (nonce, sequence string, proof string) {
+// Proof generates a fresh (nonce, sequence, proof) triple for a request.
+// SSGP §3.2: each call produces a unique, one-time proof.
+func (s *Silo) Proof(path string, reqHash string) (nonce string, sequence string, proof string) {
 	nonce = NewNonce()
 	sequence = s.NextSequence()
 	proof = s.GenerateProof(path, reqHash, nonce, sequence, s.CurrentEpoch())

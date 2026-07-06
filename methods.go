@@ -100,12 +100,13 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode == http.StatusNotFound {
-			if retry == 0 {
+		if resp.StatusCode != http.StatusOK {
+			if resp.StatusCode == http.StatusNotFound && retry == 0 {
 				s.Sync()
 				continue
 			}
-			return nil, 0, MapErrorCode("GE_COORDINATE_VOID", 0)
+			body, _ := io.ReadAll(resp.Body)
+			return nil, 0, fmt.Errorf("server_error_status_%d: %s", resp.StatusCode, string(body))
 		}
 
 		var result GetResponse
@@ -148,7 +149,6 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 		epoch := s.CurrentEpoch()
 		finalValue := SubstancePack(valBytes, s.lctState)
 
-		nonce := NewNonce()
 		sequence := s.NextSequence()
 
 		reqObj := SetRequest{
@@ -160,6 +160,8 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 			reqObj.ExpectedT = opts[0].ExpectedT
 			reqObj.TTLSeconds = opts[0].TTLSeconds
 		}
+
+		nonce := NewNonce()
 
 		reqBody, _ := json.Marshal(reqObj)
 		reqHash := HashBody(reqBody)
@@ -182,9 +184,13 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode == http.StatusNotFound && retry == 0 {
-			s.Sync()
-			continue
+		if resp.StatusCode != http.StatusOK {
+			if resp.StatusCode == http.StatusNotFound && retry == 0 {
+				s.Sync()
+				continue
+			}
+			body, _ := io.ReadAll(resp.Body)
+			return 0, fmt.Errorf("server_error_status_%d: %s", resp.StatusCode, string(body))
 		}
 
 		var result SetResponse
@@ -349,7 +355,7 @@ func (s *Silo) Schema(segment string, fields []string) (map[string]string, error
 		"segment": segment,
 		"fields":  fields,
 	}
-	reqBody, _ := json.Marshal(payload)
+	reqBody, _ := StableMarshal(payload)
 	reqHash := HashBody(reqBody)
 	proof := s.GenerateProof("", reqHash, nonce, sequence, epoch)
 
