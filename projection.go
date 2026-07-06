@@ -85,6 +85,7 @@ func (s *Silo) Top(dimension string, k int, direction string) ([]string, error) 
 	u.RawQuery = q.Encode()
 
 	projPath := "__proj__/" + dimension
+	h := Resolve(s.wsID, projPath, s.signatures)
 	proof := s.GenerateProof(projPath, "", nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
@@ -92,6 +93,7 @@ func (s *Silo) Top(dimension string, k int, direction string) ([]string, error) 
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
+	req.Header.Set("X-Silo-Coordinate", fmt.Sprintf("%d", h))
 	req.Header.Set("X-Silo-Command", CommandJump)
 	req.Header.Set("X-Silo-Priority", PriorityNormal)
 	req.Header.Set("Authorization", "Bearer "+s.Token)
@@ -129,6 +131,7 @@ func (s *Silo) Match(dimension string, value interface{}) ([]string, error) {
 	u.RawQuery = q.Encode()
 
 	projPath := "__proj__/" + dimension
+	h := Resolve(s.wsID, projPath, s.signatures)
 	proof := s.GenerateProof(projPath, "", nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
@@ -136,6 +139,7 @@ func (s *Silo) Match(dimension string, value interface{}) ([]string, error) {
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
+	req.Header.Set("X-Silo-Coordinate", fmt.Sprintf("%d", h))
 	req.Header.Set("X-Silo-Command", CommandJump)
 	req.Header.Set("X-Silo-Priority", PriorityNormal)
 
@@ -170,6 +174,7 @@ func (s *Silo) Range(dimension string, start, end interface{}) ([]string, error)
 	u.RawQuery = q.Encode()
 
 	projPath := "__proj__/" + dimension
+	h := Resolve(s.wsID, projPath, s.signatures)
 	proof := s.GenerateProof(projPath, "", nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
@@ -177,6 +182,7 @@ func (s *Silo) Range(dimension string, start, end interface{}) ([]string, error)
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
+	req.Header.Set("X-Silo-Coordinate", fmt.Sprintf("%d", h))
 	req.Header.Set("X-Silo-Command", CommandJump)
 	req.Header.Set("X-Silo-Priority", PriorityNormal)
 
@@ -209,6 +215,7 @@ func (s *Silo) Stats(dimension string) (map[string]interface{}, error) {
 	u.RawQuery = q.Encode()
 
 	projPath := "__proj__/" + dimension
+	h := Resolve(s.wsID, projPath, s.signatures)
 	proof := s.GenerateProof(projPath, "", nonce, sequence, epoch)
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
@@ -216,6 +223,7 @@ func (s *Silo) Stats(dimension string) (map[string]interface{}, error) {
 	req.Header.Set("X-Silo-Proof", proof)
 	req.Header.Set("X-Silo-Nonce", nonce)
 	req.Header.Set("X-Silo-Sequence", sequence)
+	req.Header.Set("X-Silo-Coordinate", fmt.Sprintf("%d", h))
 	req.Header.Set("X-Silo-Command", CommandJump)
 	req.Header.Set("X-Silo-Priority", PriorityLow)
 

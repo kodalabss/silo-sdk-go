@@ -191,6 +191,11 @@ func SignIn(baseURL, name, password string) (*SignInResult, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("status_%d: %s", resp.StatusCode, string(body))
+	}
+
 	var result SignInResult
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err

@@ -64,6 +64,13 @@ type GetRequest struct {
 	Path string `json:"path"`
 }
 
+type SetRequest struct {
+	Path       string      `json:"path"`
+	Value      interface{} `json:"value"`
+	ExpectedT  uint64      `json:"expected_T,omitempty"`
+	TTLSeconds int64       `json:"ttl_seconds,omitempty"`
+}
+
 // Get retrieves a value from the specified path.
 func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 	for retry := 0; retry < 2; retry++ {
@@ -74,6 +81,7 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		reqObj := GetRequest{Path: path}
 		reqBody, _ := json.Marshal(reqObj)
 		reqHash := HashBody(reqBody)
+		h := Resolve(s.wsID, path, s.signatures)
 		proof := s.GenerateProof(path, reqHash, nonce, sequence, epoch)
 
 		req, _ := http.NewRequest("GET", s.BaseURL+"/get", bytes.NewBuffer(reqBody))
@@ -81,6 +89,7 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 		req.Header.Set("X-Silo-Proof", proof)
 		req.Header.Set("X-Silo-Nonce", nonce)
 		req.Header.Set("X-Silo-Sequence", sequence)
+		req.Header.Set("X-Silo-Coordinate", fmt.Sprintf("%d", h))
 		req.Header.Set("X-Silo-Command", CommandRead)
 		req.Header.Set("X-Silo-Priority", PriorityNormal)
 		req.Header.Set("Content-Type", "application/json")
@@ -154,6 +163,7 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 
 		reqBody, _ := json.Marshal(reqObj)
 		reqHash := HashBody(reqBody)
+		h := Resolve(s.wsID, path, s.signatures)
 		proof := s.GenerateProof(path, reqHash, nonce, sequence, epoch)
 
 		req, _ := http.NewRequest("PUT", s.BaseURL+"/set", bytes.NewBuffer(reqBody))
@@ -161,6 +171,7 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 		req.Header.Set("X-Silo-Proof", proof)
 		req.Header.Set("X-Silo-Nonce", nonce)
 		req.Header.Set("X-Silo-Sequence", sequence)
+		req.Header.Set("X-Silo-Coordinate", fmt.Sprintf("%d", h))
 		req.Header.Set("X-Silo-Command", CommandWrite)
 		req.Header.Set("X-Silo-Priority", PriorityHigh)
 		req.Header.Set("Content-Type", "application/json")
@@ -444,6 +455,11 @@ func Provision(baseURL, appName string) (*ProvisionResult, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("status_%d: %s", resp.StatusCode, string(body))
+	}
 
 	var result ProvisionResult
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
