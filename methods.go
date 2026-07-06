@@ -348,8 +348,25 @@ func (s *Silo) Watch(path string) (<-chan WatchEvent, io.Closer, error) {
 	return events, resp.Body, nil
 }
 
-// Schema defines the structure for a data segment.
-func (s *Silo) Schema(segment string, fields []string) (map[string]string, error) {
+// SortOptions declares how a field should be indexed for ranked queries.
+// Set on a FieldDefinition to enable Top, Match, Range, and Stats on that field.
+type SortOptions struct {
+	BucketWidth int64  `json:"bucket_width"`
+	Direction   string `json:"direction"` // "asc" or "desc"
+	Scale       int    `json:"scale"`
+}
+
+// FieldDefinition describes a single field in a schema.
+// Set Sort to enable ranked queries (Top, Match, Range, Stats) on this field.
+type FieldDefinition struct {
+	Name string       `json:"name"`
+	Sort *SortOptions `json:"sort,omitempty"`
+}
+
+// Schema defines the fields for a data segment.
+// Fields that include a Sort declaration are automatically indexed for ranked queries.
+// No separate Anchor call is needed.
+func (s *Silo) Schema(segment string, fields []FieldDefinition) (map[string]string, error) {
 	epoch := s.CurrentEpoch()
 	nonce := NewNonce()
 	sequence := s.NextSequence()
