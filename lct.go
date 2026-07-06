@@ -16,7 +16,7 @@ var (
 	ErrSubstanceCorruption = errors.New("SUBSTANCE_CORRUPTION: Integrity verification failed")
 )
 
-// State maintains the internal vibration state for the session.
+// State maintains the internal state for the session.
 type State struct {
 	P  *big.Int
 	S  *big.Int

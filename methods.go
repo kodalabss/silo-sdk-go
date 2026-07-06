@@ -124,16 +124,17 @@ func (s *Silo) Get(path string) (json.RawMessage, uint64, error) {
 
 		var hexSubstance string
 		if err := json.Unmarshal(result.Value, &hexSubstance); err == nil {
-			decoded, err := SubstanceUnpack(hexSubstance, s.lctState)
-			if err != nil {
-				return nil, 0, fmt.Errorf("integrity_check_failed")
+			st := NewState([]byte(s.Token))
+			decoded, err := SubstanceUnpack(hexSubstance, st)
+			if err == nil {
+				var v interface{}
+				if err := msgpack.Unmarshal(decoded, &v); err == nil {
+					jsonBytes, _ := json.Marshal(v)
+					return jsonBytes, result.T, nil
+				}
+				return decoded, result.T, nil
 			}
-			var v interface{}
-			if err := msgpack.Unmarshal(decoded, &v); err == nil {
-				jsonBytes, _ := json.Marshal(v)
-				return jsonBytes, result.T, nil
-			}
-			return decoded, result.T, nil
+			return nil, 0, fmt.Errorf("integrity_check_failed")
 		}
 
 		return result.Value, result.T, nil
@@ -147,7 +148,8 @@ func (s *Silo) Set(path string, value interface{}, opts ...SetOptions) (uint64, 
 		valBytes, _ := msgpack.Marshal(value)
 
 		epoch := s.CurrentEpoch()
-		finalValue := SubstancePack(valBytes, s.lctState)
+		st := NewState([]byte(s.Token))
+		finalValue := SubstancePack(valBytes, st)
 
 		sequence := s.NextSequence()
 
@@ -257,7 +259,8 @@ func (s *Silo) Batch(writes []BatchWrite) ([]BatchResult, error) {
 
 	for i := range writes {
 		valBytes, _ := msgpack.Marshal(writes[i].Value)
-		writes[i].Value = SubstancePack(valBytes, s.lctState)
+		st := NewState([]byte(s.Token))
+		writes[i].Value = SubstancePack(valBytes, st)
 	}
 
 	nonce := NewNonce()

@@ -163,7 +163,7 @@ func (s *Silo) NextSequence() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Metropolis Rule: Sequence is monotonic + predictive
+	// Sequence generation: monotonic + predictive
 	ts := time.Now().UnixNano() + s.clockSkew
 	sVal := s.lctState.S.Uint64()
 
@@ -204,7 +204,7 @@ func SignIn(baseURL, name, password string) (*SignInResult, error) {
 }
 
 // Proof generates a fresh (nonce, sequence, proof) triple for a request.
-// SSGP §3.2: each call produces a unique, one-time proof.
+// Each call produces a unique, one-time proof.
 func (s *Silo) Proof(path string, reqHash string) (nonce string, sequence string, proof string) {
 	nonce = NewNonce()
 	sequence = s.NextSequence()

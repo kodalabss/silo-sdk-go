@@ -96,7 +96,6 @@ func (s *Silo) Top(dimension string, k int, direction string) ([]string, error) 
 	req.Header.Set("X-Silo-Coordinate", fmt.Sprintf("%d", h))
 	req.Header.Set("X-Silo-Command", CommandJump)
 	req.Header.Set("X-Silo-Priority", PriorityNormal)
-	req.Header.Set("Authorization", "Bearer "+s.Token)
 
 	resp, err := s.client.Do(req)
 	if err != nil {

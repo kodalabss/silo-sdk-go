@@ -26,7 +26,7 @@ func Resolve(workspaceID string, path string, signatures map[string]string) uint
 	segments := strings.Split(path, "/")
 	segmentName := segments[0]
 
-	// SILO_BRAIN §III — Projection floor consolidation (Private Brain Law)
+	// Projection floor consolidation
 	if segmentName == "__proj__" && len(segments) == 4 {
 		floorPath := strings.Join(segments[:3], "/")
 		lCoord := uint64(0)
@@ -68,7 +68,7 @@ func (s *Silo) DeriveSn(epoch int64) []byte {
 }
 
 // GenerateProof creates a unified access proof for a request.
-// SSGP §3.2 canonical formula: HMAC(Sn, G || τ || Nonce || Seq || ReqHash)
+// HMAC signature formula: HMAC(Sn, G || Epoch || Nonce || Seq || ReqHash)
 func (s *Silo) GenerateProof(path string, reqHash string, nonce string, sequenceID string, epoch int64) string {
 	s.mu.RLock()
 	sigs := s.signatures
@@ -82,7 +82,7 @@ func (s *Silo) GenerateProof(path string, reqHash string, nonce string, sequence
 	sn := s.DeriveSn(epoch)
 	g := Resolve(wsID, path, sigs)
 
-	// Trinity Formula: HMAC(Sn, G || τ || Nonce || Seq || ReqHash)
+	// HMAC generation
 	mac := hmac.New(sha256.New, sn)
 	payload := fmt.Sprintf("%d:%d:%s:%s:%s", g, epoch, nonce, sequenceID, reqHash)
 	mac.Write([]byte(payload))
