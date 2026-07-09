@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+const Version = "7.0.1"
+
 // Silo is the main client for interacting with the service.
 type Silo struct {
 	BaseURL string
@@ -226,5 +228,42 @@ func (s *Silo) Telemetry() (map[string]interface{}, error) {
 
 	var result map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&result)
+	return result, nil
+}
+
+// Radar retrieves the deep health status of the engine and workspace.
+func (s *Silo) Radar() (map[string]interface{}, error) {
+	epoch := s.CurrentEpoch()
+	nonce := NewNonce()
+	sequence := s.NextSequence()
+
+	path := "__health__/radar"
+	h := Resolve(s.wsID, path, nil)
+	proof := s.GenerateProof(path, "", nonce, sequence, epoch)
+
+	req, _ := http.NewRequest("GET", s.BaseURL+"/health/radar", nil)
+	req.Header.Set("X-Silo-Workspace-ID", s.wsID)
+	req.Header.Set("X-Silo-Proof", proof)
+	req.Header.Set("X-Silo-Nonce", nonce)
+	req.Header.Set("X-Silo-Sequence", sequence)
+	req.Header.Set("X-Silo-Coordinate", fmt.Sprintf("%d", h))
+	req.Header.Set("X-Silo-Command", CommandRadar)
+	req.Header.Set("X-Silo-Priority", PriorityLow)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("radar_failed_status_%d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }

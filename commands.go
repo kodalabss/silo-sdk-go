@@ -9,6 +9,7 @@ const (
 	CommandRead      = "READ"
 	CommandJump      = "JUMP"
 	CommandObserve   = "OBSERVE"
+	CommandRadar     = "RADAR"
 )
 
 // Priority hints for traffic optimization.
