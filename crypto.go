@@ -17,7 +17,6 @@ func H(input string) uint64 {
 }
 
 // Resolve maps a path to a deterministic numeric coordinate.
-// Mirrors internal/geometry/resolve.go exactly — must stay in sync.
 func Resolve(workspaceID string, path string, signatures map[string]string) uint64 {
 	hFinal := H(fmt.Sprintf("%s:0", workspaceID))
 	if path == "" {
@@ -26,7 +25,6 @@ func Resolve(workspaceID string, path string, signatures map[string]string) uint
 	segments := strings.Split(path, "/")
 	segmentName := segments[0]
 
-	// Projection floor consolidation
 	if segmentName == "__proj__" && len(segments) == 4 {
 		floorPath := strings.Join(segments[:3], "/")
 		lCoord := uint64(0)
