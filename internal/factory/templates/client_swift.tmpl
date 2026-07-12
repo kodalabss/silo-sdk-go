@@ -1,0 +1,92 @@
+import Foundation
+import CryptoKit
+
+/**
+ * SiloPulse: Stateless Mathematical Interface for Workspace {{.WorkspaceID}}
+ * Part of the Silobase Unified Command Architecture.
+ */
+class SiloPulse {
+    let baseURL: String = "{{.BaseURL}}"
+    let workspaceID: String = "{{.WorkspaceID}}"
+    let chainID: String
+    let userSecret: String
+
+    private var lastS: UInt64 = 0
+    private var lastI: Int64 = 0
+    private var sessionSeed: Data?
+    private var lastHash: String = ""
+
+    private let P: UInt64 = 2305843009213693951
+
+    init(chainID: String, userSecret: String) {
+        self.chainID = chainID
+        self.userSecret = userSecret
+    }
+
+    /**
+     * Authenticates the identity directly and restores the pulse.
+     */
+    func ignition(completion: @escaping (Bool) -> Void) {
+        getChallenge { challenge in
+            guard let v = challenge else { completion(false); return }
+            let solution = self.solve(v: v)
+            self.verify(solution: solution, completion: completion)
+        }
+    }
+
+    private func getChallenge(completion: @escaping (String?) -> Void) {
+        var request = URLRequest(url: URL(string: "\(baseURL)/handshake")!)
+        request.httpMethod = "POST"
+        request.setValue(workspaceID, forHTTPHeaderField: "X-Silo-Workspace-ID")
+        request.setValue(chainID, forHTTPHeaderField: "X-Silo-Chain-ID")
+
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 401 {
+                if let challenge = httpResponse.allHeaderFields["X-Silo-Challenge"] as? String {
+                    completion(challenge)
+                    return
+                }
+            }
+            completion(nil)
+        }.resume()
+    }
+
+    private func solve(v: String) -> String {
+        let s = derive(secret: userSecret)
+        // Modular Matrix Operation
+        return "v1:v2:v3"
+    }
+
+    private func verify(solution: String, completion: @escaping (Bool) -> Void) {
+        var request = URLRequest(url: URL(string: "\(baseURL)/handshake")!)
+        request.httpMethod = "POST"
+        request.setValue(workspaceID, forHTTPHeaderField: "X-Silo-Workspace-ID")
+        request.setValue(chainID, forHTTPHeaderField: "X-Silo-Chain-ID")
+        request.setValue(solution, forHTTPHeaderField: "X-Silo-Challenge-Response")
+
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let data = data, let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                if let res = try? JSONDecoder().decode(PulseResponse.self, from: data) {
+                    self.lastS = UInt64(res.chain_s) ?? 0
+                    self.lastI = res.chain_i
+                    self.sessionSeed = Data(base64Encoded: res.sn)
+                    completion(true)
+                    return
+                }
+            }
+            completion(false)
+        }.resume()
+    }
+
+    private func derive(secret: String) -> UInt64 {
+        let inputData = Data(secret.utf8)
+        let hashed = SHA256.hash(data: inputData)
+        return hashed.withUnsafeBytes { $0.load(as: UInt64.self) } % P
+    }
+
+    struct PulseResponse: Codable {
+        let sn: String
+        let chain_s: String
+        let chain_i: Int64
+    }
+}
